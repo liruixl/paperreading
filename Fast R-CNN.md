@@ -33,7 +33,7 @@ Ross Girshick (Microsoft Research rbg@microsoft.com )，把同在微软的何凯
 
 ## Architecture
 
-![FastRCNN_net](img\FastRCNN_net.png)
+![FastRCNN_net](img/FastRCNN_net.png)
 
 ### 网络转化
 
