@@ -45,7 +45,7 @@ SSD方法基于前馈卷积网络，该网络生成**固定尺寸的边界框集
 
 ## Training
 
-### Matching strategy正负样本
+### Matching strategy
 
 > For each ground truth box we are selecting from default boxes that vary over location, aspect ratio, and scale. We begin by matching each ground truth box to the default box with the best jaccard overlap (as in MultiBox [7]). Unlike MultiBox, we then match default boxes to any ground truth with jaccard overlap higher than a threshold (0.5).  
 >

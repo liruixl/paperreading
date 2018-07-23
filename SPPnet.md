@@ -101,7 +101,7 @@ SVM训练与RCNN策略一样。不多说。
 
 3. 边框回归训练：Also following RCNN, we use bounding box regression to post-process the prediction windows. The features used for regression are the pooled features from conv5 (as a counterpart of the pool5 features used in [7]RCNN). The windows used for the regression training are those overlapping with a ground-truth window by at least 50% .   
 
-超参数：
+#### 超参数：
 
 + The fc8 weights are initialized with a Gaussian distribution of σ=0.01   
 + 学习速率： We train 250k mini-batches using the learning rate 1e-4, and then 50k mini-batches using 1e-5

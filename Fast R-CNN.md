@@ -37,7 +37,7 @@ Ross Girshick (Microsoft Research rbg@microsoft.com )，把同在微软的何凯
 
 ### 网络转化
 
-一个预训练的网络初始化一个Fast R-CCN网络，需要三个转换：
+一个预训练的网络，比如VGG16，初始化一个Fast R-CCN网络，需要三个转换：
 
 1. 最后一层最大池化层被一个ROI pooling层替代来和网络的第一个全连接层相容。
 2. 最后一个全连接层和softmax层被前文所述的兄弟层替代。
@@ -53,11 +53,11 @@ Ross Girshick (Microsoft Research rbg@microsoft.com )，把同在微软的何凯
 
 4. 将每一个特征向量（ps 应该是n(RoIs)×fixed-length vector一起送入全连接层吧，但图中右下角表明是For each RoI）输入到一系列全连接层，然后兵分两路送入到两个输出层，softmax是K+1的输出，bbox regressor输出 four real-valued numbers for each of the K object classes，那输出应该是4K长度的向量。插图介绍把这两个输出向量叫做：oftmax probabilities and per-class bounding-box regression offsets。 
 
-   *我理解的是：本文中有128个RoIs，softmax输出128×20即1）对应某一类别每个RoI的得分，2）也可以理解为某个RoI对应每个类别的得分，因为要做NMS，是在某一类下对所有RoI进行操作，所以第一种解释比较好理解。bbox regressor输出128×4对应每个RoI的坐标偏移。*
+   *我理解的是：本文中有128个RoIs，softmax输出128×20即，1）对应某一类别每个RoI的得分，2）也可以理解为某个RoI对应每个类别的得分，因为要做NMS，是在某一类下对所有RoI进行操作，所以第一种解释比较好理解。bbox regressor输出128×4对应每个RoI的坐标偏移。*
 
 ### The RoI pooling layer
 
-说白了，就是one-level spp pooling。把特征图分为H×W（e.g. 7×7 for VGG16）的grid cell。核大小核计算规则见SPPnet。
+说白了，就是one-level spp pooling。把特征图分为H×W（e.g. 7×7 for VGG16）的grid cell。核大小计算规则见SPPnet。
 
 > Each RoI is defined by a four-tuple (r, c, h, w) that specifies its top-left corner (r, c) and its height and width (h, w) 
 
@@ -101,6 +101,7 @@ Each training RoI is labeled with **a ground-truth class *u*** and a ground-trut
 ![Fast_RCNN_loc_loss](img/Fast_RCNN_loc_loss.png)
 
 ![img](https://pic2.zhimg.com/80/v2-fa78a0462cb6cd1cd8dcd91f88820d19_hd.png)
+
 smoothL1 is a robust L1 loss that is less sensitive to outliers than the L2 loss used in R-CNN and SPPnet. 
 
 We normalize the ground-truth regression targets *vi* to **have zero mean and unit variance**. All experiments use λ = 1.    （ps，4个数也能正则化？？？？？）

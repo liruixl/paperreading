@@ -42,7 +42,11 @@
 
 目的是代替Selective search算法，找出多个候选区域（本文叫anchor），RCNN提取2000个（region proposal）；SPPnet也是2000个，不过是将候选框（windows）映射在特征图上提取特征，一张图片一次卷积；Fast R-CNN sample R/N RoIs from each image ，128/2=64个RoIs，具体怎么采样64个没写。。。。本文是通过训练RPN网络，让网络自己学习找到建议框。
 
-与SPPnet不同的是，SPPnet是将原图建议框坐标映射到特征图上，然后spp pooling特征图上的窗口。而Faster R-CNN中是在特征图上选好anchor，文中k=9——固定尺度变化（三种尺度），固定scale ratio变化（三种ratio） 然后映射到原图上，再根据ground truth打标签（ps：还是将ground truth映射到特征图上。。。。再计算IoU打标签。。。）。具体对应到VGG16是如下第二张图结构，注意是RPN是全卷积网络，features对于一幅大小为600×800的图像，通过VGG之后，conv5_3的大小为38×50×512，则总的anchor的个数为38×50×9。**下图中的silding window是不是3*3的卷积？？？没搞清楚，原文如下：**
+与SPPnet不同的是，SPPnet是将原图建议框坐标映射到特征图上，然后spp pooling特征图上的窗口。而Faster R-CNN中是在特征图上选好anchor，文中k=9——固定尺度变化（三种尺度），固定scale ratio变化（三种ratio）
+
+> For anchors, we use 3 scales with box areas of 128×,128 256×256, and 512×512 pixels, and 3 aspect ratios of 1:1, 1:2, and 2:1.     
+
+然后映射到原图上，再根据ground truth打标签（ps：还是将ground truth映射到特征图上。。。。再计算IoU打标签。。。）。具体对应到VGG16是如下第二张图结构，注意是RPN是全卷积网络，features对于一幅大小为600×800的图像，通过VGG之后，conv5_3的大小为38×50×512，则总的anchor的个数为38×50×9。**下图中的silding window是不是3*3的卷积？？？没搞清楚，原文如下：**
 
 > To generate region proposals, we slide a small network over the convolutional feature map output by the last shared convolutional layer. This small network takes as input an n × n spatial window of the input convolutional feature map. **Each sliding window is mapped to a lower-dimensional feature (256-d for ZF and 512-d for VGG, with ReLU [33] following)**. This feature is fed into two sibling fully-connected layers—a box-regression layer (reg) and a box-classification layer (cls). We use n = 3 in this paper, noting that the effective receptive field on the input image is large (171 and 228 pixels for ZF and VGG, respectively). This mini-network is illustrated at a single position in Figure 3 (left). Note that because the mini-network operates in a sliding-window fashion, the fully-connected layers are shared across all spatial locations. **This architecture is naturally implemented with an n×n convolutional layer** followed by two sibling 1 × 1 convolutional layers (for reg and cls, respectively).    
 
