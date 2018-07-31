@@ -52,8 +52,9 @@ SSD方法基于前馈卷积网络，该网络生成**固定尺寸的边界框集
 > 使用the best jaccard overlap (as in MultiBox)策略，不了解。。。。。还要去看MultBox，哇。
 
 1. 首先，寻找与每一个ground truth有最大的IoU的default box，这样就能保证ground truth至少有default box匹配；
-2. SSD之后又将剩余还没有配对的default box与任意一个ground truth尝试配对，只要两者之间的IoU大于阈值（SSD 300 阈值为0.5），就认为match；
-3. 配对到ground truth的default box就是positive，没有配对的default box就是negative。
+2. SSD之后又将剩余还没有配对的default box与~~任意个~~ground truth尝试配对，只要两者之间的IoU大于阈值（SSD 300 阈值为0.5），就认为match；
+3. 遍历下一个groundtruth，循环第2步，分数高的两者match，并打标签（类别，分数，groundtruth坐标）
+4. 配对到ground truth的default box就是positive，没有配对的default box就是negative。
 
 ### 损失Loss
 

@@ -56,13 +56,13 @@ RPN与基网络共享卷积层，在Faster RCNN中只利用了最后输出的特
 
 #### RPN训练标签
 
-> We assign training labels to the anchors based on their Intersection-over-Union (IoU) ratios with ground-truth bounding boxes as **in [29]Faster RCNN**. Formally, an anchor is assigned a positive label if it has the highest IoU for a given ground-truth box or an IoU over 0.7 with any ground-truth box, and a negative label if it has IoU lower than 0.3 for all ground-truth boxes. 
+> We assign training labels to the anchors based on their Intersection-over-Union (IoU) ratios with ground-truth bounding boxes as **in [29]Faster RCNN**. Formally, an anchor is assigned a positive label if it has the highest IoU for a given ground-truth box or an IoU over 0.7 with any ground-truth box, and a negative label if it has IoU lower than 0.3 for all ground-/truth boxes. 
 
 ### Feature Pyramid Networks for Fast R-CNN
 
 Faster R-CNN：
 
-![Faster RCNN](img/Faster RCNN.jpeg)
+![Faster RCNN](img/Faster_RCNN.jpeg)
 
 FPN for Fast R-CNN：
 

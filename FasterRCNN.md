@@ -38,6 +38,12 @@
 
 ![fasterrcnn](img/fasterrcnn.png)
 
+基于VGG的架构：
+
+![fastrcnn_vgg](img/fastrcnn_vgg.png)
+
+
+
 ### RPN结构
 
 目的是代替Selective search算法，找出多个候选区域（本文叫anchor），RCNN提取2000个（region proposal）；SPPnet也是2000个，不过是将候选框（windows）映射在特征图上提取特征，一张图片一次卷积；Fast R-CNN sample R/N RoIs from each image ，128/2=64个RoIs，具体怎么采样64个没写。。。。本文是通过训练RPN网络，让网络自己学习找到建议框。
@@ -68,7 +74,7 @@
 
 ### RPN训练
 
-#### 标签
+#### anchor标签
 
 > For training RPNs, we assign **a binary class label (of being an object or not)** to each anchor. We assign a positive label to two kinds of anchors: (i) the anchor/anchors with the highest Intersection-over Union (IoU) overlap with a ground-truth box, or (ii) an anchor that has an IoU overlap higher than 0.7 with any ground-truth box. Note that a single ground-truth box may assign positive labels to multiple anchors. Usually the second condition is sufficient to determine the positive samples; but we still adopt the first condition for the reason that in some rare cases the second condition may find no positive sample. We assign a negative label to a non-positive anchor if its IoU ratio is lower than 0.3 for all ground-truth boxes. **Anchors that are neither positive nor negative do not contribute to the training objective**    
 
@@ -119,7 +125,7 @@ t的定义在RCNN中，与RCNN中用到pooling5层中输出的特征用于回归
 
 每个batch输入一张图像？？？
 
-> we **randomly sample** 256 anchors in an image to compute the loss function of a mini-batch, where the sampled positive and negative anchors have a ratio of up to 1:1. If there are fewer than 128 positive samples in an image, we pad the mini-batch with negative ones.    
+> we **randomly sample** 256 anchors in an image to compute the loss function of a mini-batch, where the sampled positive and negative anchors have a ratio of up to **1:1**. If there are fewer than 128 positive samples in an image, we pad the mini-batch with negative ones.    
 
 那就是输入一张图像，卷积后输出特征图，比如38×50×512，那就是38×50×9个anchors中只有256个anchor被采样，用来计算损失。正负样本1：1。再比如cls回归输出30×50×（2×9），只有2×256的数被利用。再细节一节中提到大约有6000个anchor可以用于训练。
 
@@ -138,9 +144,18 @@ t的定义在RCNN中，与RCNN中用到pooling5层中输出的特征用于回归
 
 上面介绍了RPN训练用于region proposal generation，那怎么利用呢？ps：对啊，HW4k个坐标，HW2k个是不是物体的信息，综合一下也输出好多带物体的好多框坐标信息。还是直接全部使用？？全部使用也太多了吧。。
 
+> 1. 生成anchors，利用![[d_{x}(A),d_{y}(A),d_{w}(A),d_{h}(A)]](https://www.zhihu.com/equation?tex=%5Bd_%7Bx%7D%28A%29%2Cd_%7By%7D%28A%29%2Cd_%7Bw%7D%28A%29%2Cd_%7Bh%7D%28A%29%5D)对所有的anchors做bbox regression回归（这里的anchors生成和训练时完全一致）
+> 2. 按照输入的foreground softmax scores由大到小排序anchors，提取前pre_nms_topN(e.g. 6000)个anchors，即提取修正位置后的foreground anchors。
+> 3. 限定超出图像边界的foreground anchors为图像边界（防止后续roi pooling时proposal超出图像边界）
+> 4. 剔除非常小（width<threshold or height<threshold）的foreground anchors
+> 5. 进行nonmaximum suppression
+> 6. 再次按照nms后的foreground softmax scores由大到小排序fg anchors，提取前post_nms_topN(e.g. 300)结果作为proposal输出。
+
 检测网络用Fast RCNN。参考Fast RCNN。
 
 Alternating training：此方法其实就是一个不断迭代的训练过程，既然分别训练RPN和Fast-RCNN可能让网络朝不同的方向收敛，a)那么我们可以先独立训练RPN，然后用这个RPN的网络权重对Fast-RCNN网络进行初始化并且用之前RPN输出proposal作为此时Fast-RCNN的输入训练Fast R-CNN。b) 用Fast R-CNN的网络参数去初始化RPN。之后不断迭代这个过程，即循环训练RPN、Fast-RCNN。
+
+![img](assets/v2-ed3148b3b8bc3fbfc433c7af31fe67d5_hd.jpg)
 
 上面说完了三种可能的训练方法，可非常神奇的是作者发布的源代码里却用了另外一种叫做4-Step Alternating Training的方法，思路和迭代的Alternating training有点类似，但是细节有点差别：
 
@@ -154,7 +169,10 @@ Alternating training：此方法其实就是一个不断迭代的训练过程，
 ## 其他细节
 
 + 单尺度训练和测试，We re-scale the images such that their shorter side is s = 600 pixel。
-+ For anchors, we use 3 scales with box areas of 128×,128 256×256, and 512×512 pixels, and 3 aspect ratios of 1:1, 1:2, and 2:1.     
+
++ For anchors, we use 3 scales with box areas of 128×,128 256×256, and 512×512 pixels, and 3 aspect ratios of 1:1, 1:2, and 2:1. 
+
+  ![img](assets/v2-7abead97efcc46a3ee5b030a2151643f_hd.jpg)
 
 ![fastrcnn_anchor_size](img/fastrcnn_anchor_size.png)
 
