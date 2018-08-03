@@ -10,3 +10,6 @@ English水平与阅读英文API有直接关系嘛？？
 
 > underscore  下划线
 
+> Ops that dequeue from the pre-assembled queue will not pay the cost of assembling the batch.
+>
+> 从预先装配的队列中出列操作不会支付the cost assembling the batch.

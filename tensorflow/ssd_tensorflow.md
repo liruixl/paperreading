@@ -1,9 +1,3 @@
-
-
-
-
-
-
 ## 数据集
 
 ### 1.1数据集TFrecoeds制作
@@ -1232,6 +1226,12 @@ data_files = parallel_reader.get_data_files(data_sources)
 
 ### 2.2预处理图像增强
 
+来自provider的数据，名称和形状：
+
++ image：(H，W，3)
++ glables：（num_objects，）
++ gbboxes：(N，4)
+
 ```python
 def preprocess_for_train(image, labels, bboxes,
                          out_shape, data_format='NHWC',
@@ -1293,11 +1293,13 @@ def preprocess_for_train(image, labels, bboxes,
         return image, labels, bboxes
 ```
 
-### 2.3 encode bbox
+### 2.3 encode bbox：真正输入
+
+最开始provider提供的标签只是每个object的标签，而我们要做的是给所有anchors都安排上。
 
 `class SSDNet`中的方法。
 
-对于原始图像和预处理后的图像，我么都需要为每一个特张图的每一个anchor**打正负标签**，并且把原始的bbox坐标[ymin,xmin,ymax,xmin]编码为可以用于回归的[cx，cy，h，w]。
+对于原始图像和预处理后的图像，我么都需要为**每一个特张图的每一个anchor打正负标签**，并且把原始的bbox坐标[ymin,xmin,ymax,xmin]编码为可以用于回归的偏移量哦[cx，cy，h，w]。负样本的类别是0，偏移量也是默认的0。
 
 ```python
 def bboxes_encode(self, labels, bboxes, anchors,
@@ -1313,7 +1315,29 @@ def bboxes_encode(self, labels, bboxes, anchors,
         scope=scope)
 ```
 
-`tf_ssd_bboxes_encod`定义在`nets/ssd_common.py`:
+`tf_ssd_bboxes_encode`定义在`nets/ssd_common.py`:
+
+输入为：
+
+预处理后的(1)图像数据和(2)生成的anchor
+
++ ~~image：(W，H，3)~~
+
++ glables: Tensor（num_objects，）
++ gbboxes：Tensor (num_objects，4)
++ ssd_anchors：List [(y，x，w，h) × 6……]，六个特征图。
+  + y，x：ndarray，形状：(H, W, 1)，框中心归一化坐标。
+  + h，w : ndarray，形状：(num_anchors, ) 比如：4个或6个，也要归一化
+
+返回：都是List，长度都为6，对应6个不同的特征图，size_features不同。
+
++ gclasses：List，元素为：
+  + target_labels：Tensor（size_features，size_features，4/6）
+
++ glocalisations：List
+  +  target_localizations：Tensor（size_features，size_features，4/6，4）
++ gscores ：List
+  + target_scores：Tensor（size_features，size_features，4/6）
 
 ```python
 # Encoding boxes for all feature layers.
@@ -1395,7 +1419,7 @@ def tf_ssd_bboxes_encode_layer(labels,
 
     # Initialize tensors...
     shape = (yref.shape[0], yref.shape[1], href.size)  # 比如，第一层(38,38,4)
-    # 初始化每个特征图上的点对应的各个box所属标签和类别（打标签）
+    # 初始化特征图上的点对应的各个anchor所属  标签类别和分数（打标签）
     feat_labels = tf.zeros(shape, dtype=tf.int64)  # 初始值0
     feat_scores = tf.zeros(shape, dtype=dtype)
     # 初始化box对应的ground truth的坐标（打标签）
@@ -1509,3 +1533,254 @@ def tf_ssd_bboxes_encode_layer(labels,
     return feat_labels, feat_localizations, feat_scores
 ```
 
+## 训练
+
+### 3.1batch
+
+```python
+# 弄懂reshpe_list要干嘛，就知道返回r的列表长度为1+6+6+6,这个操作之后就多了个batch_size维度
+r = tf.train.batch(
+    tf_utils.reshape_list([image, gclasses, glocalisations, gscores]),
+    batch_size=FLAGS.batch_size,
+    num_threads=FLAGS.num_preprocessing_threads,
+    capacity=5 * FLAGS.batch_size)
+# 等run操作完成，再reshape回去。注意：增加了第一维度batch_size
+b_image, b_gclasses, b_glocalisations, b_gscores = \
+                tf_utils.reshape_list(r, batch_shape)
+```
+
+为了便于run，用到TF中run的操作，要把list中的Tensor分开。
+
+> [Tensor,[Tesnor1_1,Tesnor1_2],[Tesnor2_1,Tensor2_2]]----------->>>>
+>
+> [Tensor,Tesnor1_1,Tesnor1_2,Tesnor2_1,Tensor2_2]
+
+为了便于操作，运算时又把6特征图上的数据stack成一个list。
+
+```python
+def reshape_list(l, shape=None):
+    '''
+    shape = None
+    要保证tf.train.batch传入的都是可以run的，而不是list类型（没法run）。相当于连接操作，
+    而gclasses, glocalisations, gscores都是list，把他们连接成一个list。
+    shape is not None，则是相反的操作。
+    '''
+    r = []
+    if shape is None:
+        # Flatten everything.
+        for a in l:
+            if isinstance(a, (list, tuple)):
+                r = r + list(a)  # 比如['image']+[1,1] = ['iamge',1,1]
+            else:
+                r.append(a)
+    else:
+        i = 0
+        for s in shape:
+            if s == 1:
+                r.append(l[i])
+            else:
+                r.append(l[i:i+s])
+            i += s
+    return r
+```
+
+网络主体部分：
+
+```python
+batch_queue = slim.prefetch_queue.prefetch_queue(
+                tf_utils.reshape_list([b_image, b_gclasses, b_glocalisations, b_gscores]),
+                capacity=2 * deploy_config.num_clones)
+def clone_fn(batch_queue):
+    """Allows data parallelism by creating multiple
+    clones of network_fn."""
+    # 1.取出一批数据。Dequeue batch.
+    b_image, b_gclasses, b_glocalisations, b_gscores = \
+        tf_utils.reshape_list(batch_queue.dequeue(), batch_shape)
+
+    # 2.arg_scope构建网络并且的搭配输出，为什么说arg_scope是用来构建网络呢？↓↓↓
+    arg_scope = ssd_net.arg_scope(weight_decay=FLAGS.weight_decay,
+                                  data_format=DATA_FORMAT)
+    with slim.arg_scope(arg_scope):
+        predictions, localisations, logits, end_points = \
+            ssd_net.net(b_image, is_training=True)
+    # 3.Add loss function.
+    # 每个loss都会保存在tf.GraphKeys.LOSSES，所以这个losses方法没有返回任何东西
+    # 不是直接返回给一个Tensor，具体看3.2节
+    ssd_net.losses(logits, localisations,
+                   b_gclasses, b_glocalisations, b_gscores,
+                   match_threshold=FLAGS.match_threshold,
+                   negative_ratio=FLAGS.negative_ratio,
+                   alpha=FLAGS.loss_alpha,
+                   label_smoothing=FLAGS.label_smoothing)
+    return end_points
+```
+
+1. 这里用到了`slim.prefetch_queue.prefetch_queue`方法[👉](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/slim/python/slim/data/prefetch_queue.py)：
+
+    > Creates a queue to prefetch tensors from `tensors`.
+    >
+    > A queue runner for enqueuing tensors into the prefetch_queue is automatically added to the TF QueueRunners collection.
+
+    调用这个方法，就创造了一个预取Tensors的队列，节省了每次取数据组装的时间。例如：
+
+    ```python
+    images, labels = tf.train.batch([image, label], batch_size=32, num_threads=4)
+    batch_queue = prefetch_queue([images, labels])
+    images, labels = batch_queue.dequeue()
+    logits = Net(images)
+    loss = Loss(logits, labels)QueueRunner被添加。目前不了解这个。。。。
+    ```
+
+    [TensorFlow中的Queue和QueueRunner](https://zhuanlan.zhihu.com/p/31361295)
+
+    [Tensorflow深度学习之十七：队列与多线程](https://blog.csdn.net/DaVinciL/article/details/77342027)
+
+2. slim.arg_scope是slim库的特色，把各种层的相同参数的定义放到一起，这样就不用在网络定义时申明这些参数了，**但当用到网络时，必须指定**`slim.arg_scope`
+
+   ```python
+   def ssd_arg_scope(weight_decay=0.0005, data_format='NHWC'):
+       """Defines the VGG arg scope.
+       Args:
+         weight_decay: The l2 regularization coefficient.
+       Returns:
+         An arg_scope.
+       """
+       with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                           activation_fn=tf.nn.relu,
+                           weights_regularizer=slim.l2_regularizer(weight_decay),
+                           weights_initializer=tf.contrib.layers.xavier_initializer(),
+                           biases_initializer=tf.zeros_initializer()):
+           with slim.arg_scope([slim.conv2d, slim.max_pool2d],
+                               padding='SAME',
+                               data_format=data_format):
+               with slim.arg_scope([custom_layers.pad2d,
+                                    custom_layers.l2_normalization,
+                                    custom_layers.channel_to_last],
+                                   data_format=data_format) as sc:
+                   return sc
+   ```
+
+3. Add loss function.见3.2节。
+
+### 3.2loss
+
+论文中是多任务损失，还需要将正负的比例控制在1：3，还提莫要对负样本按分数进行排序（这个分数好像就是按照IoU计算的，越小说明是背景的置信分数越高），越负越好。
+
+```python
+ssd_net.losses(logits, localisations,
+                   b_gclasses, b_glocalisations, b_gscores,
+                   match_threshold=FLAGS.match_threshold,  # 0.5
+                   negative_ratio=FLAGS.negative_ratio,  # 3.
+                   alpha=FLAGS.loss_alpha,  # 1.0
+                   label_smoothing=FLAGS.label_smoothing)  # 0
+```
+
+参数中：
+
++ 网络的输出预测：logits(没经过softmax)：(N,H,W,4/6,21)×6，localisations：(N,H,W,4/6,4)，注意这是5维的。在网络最后的虚区（致敬猴哥）上进行reshape。
++ encode bbox的输出，即标签：b_gclasses, b_glocalisations, b_gscores。前两个用于计算损失，后一个分数用于给负样本排序，选择用于回归的负样本。
+
+代码好长长长长长：
+
+```python
+def ssd_losses(logits, localisations,
+               gclasses, glocalisations, gscores,
+               match_threshold=0.5,
+               negative_ratio=3.,
+               alpha=1.,
+               label_smoothing=0.,
+               device='/cpu:0',
+               scope=None):
+    '''Loss functions for training the SSD 300 VGG network.
+    This function defines the different loss components of the SSD, and
+    adds them to the TF loss collection.
+
+    Arguments:
+      logits: (list of) predictions logits Tensors;[N,H,W,num_anchor, 21]
+      localisations: (list of) localisations Tensors;[N,H,W,num_anchor, 4]
+      gclasses: (list of) groundtruth labels Tensors;
+      glocalisations: (list of) groundtruth localisations Tensors;[N,H,W,num_anchor,4]
+      gscores: (list of) groundtruth score Tensors; IOU???
+      alpha: 位置误差权重系数
+    '''
+    with tf.name_scope(scope, 'ssd_losses'):
+        lshape = tfe.get_shape(logits[0], 5)  # 第一个特征图: [N,38,38,num_anchor,21]
+        num_classes = lshape[-1]  # 21
+        batch_size = lshape[0]  # N
+
+        # Flatten out all vectors!方便计算？？？？？
+        flogits = []
+        fgclasses = []
+        fgscores = []
+        flocalisations = []
+        fglocalisations = []
+        for i in range(len(logits)):  # 遍历每个特征图，Flatten按着每个anchor
+            flogits.append(tf.reshape(logits[i], [-1, num_classes]))#预测(N*H*W*num_anchor,21)
+            fgclasses.append(tf.reshape(gclasses[i], [-1]))  # 真实类别(N*H*W*num_anchor,)，不是one_hot编码
+            fgscores.append(tf.reshape(gscores[i], [-1]))  # 预测目标得分
+            flocalisations.append(tf.reshape(localisations[i], [-1, 4])) #预测边框坐标
+            fglocalisations.append(tf.reshape(glocalisations[i], [-1, 4])) #groundtruth真实坐标
+        # And concat the crap!把所有特征图放一个list里！！
+        logits = tf.concat(flogits, axis=0)
+        gclasses = tf.concat(fgclasses, axis=0)
+        gscores = tf.concat(fgscores, axis=0)
+        localisations = tf.concat(flocalisations, axis=0)
+        glocalisations = tf.concat(fglocalisations, axis=0)
+        dtype = logits.dtype
+
+        # Compute positive matching mask...
+        # 正例是根据IoU确定，负样本的选择根据预测的置信分
+        pmask = gscores > match_threshold  # pmask的长度跟gscores一样 所有anchors的数量
+        fpmask = tf.cast(pmask, dtype)
+        n_positives = tf.reduce_sum(fpmask)  # 正样本数量是这么来的
+
+        # Hard negative mining...
+        no_classes = tf.cast(pmask, tf.int32)
+        predictions = slim.softmax(logits)
+        # 负样本布尔标志 1表示是负样本的
+        nmask = tf.logical_and(tf.logical_not(pmask),
+                               gscores > -0.5)
+        # ?????大于-0.5什么鬼，首先not pmask中已经把正例去掉，
+        # -0.5应该是在负例中再次筛选，太负的就不要了
+        # 要注意这个score特么怎么算的2018/7/29
+        # 答：算IoU，两个不重叠的框会出现负值哦2018/8/3
+        fnmask = tf.cast(nmask, dtype)
+        nvalues = tf.where(nmask,
+                           predictions[:, 0],# 是负样本，取出对应的预测置信分数
+                           1. - fnmask)  # 不是负样本，1-0=1
+        # 在已知是负样本的情况下，预测的分数就代表了预测的有多准。
+        nvalues_flat = tf.reshape(nvalues, [-1])
+        # Number of negative entries to select.
+        max_neg_entries = tf.cast(tf.reduce_sum(fnmask), tf.int32) # 负样本数量
+        n_neg = tf.cast(negative_ratio * n_positives, tf.int32) + batch_size  # 为什么要加batch_size
+        n_neg = tf.minimum(n_neg, max_neg_entries)  # 要用到的负样本数量
+
+        val, idxes = tf.nn.top_k(-nvalues_flat, k=n_neg) # ====关键===为什么选置信度小的的？
+        max_hard_pred = -val[-1]  # 最大负样本置信度，如[-0.1,-0.2,-0.5]->0.5
+        # Final negative mask.
+        nmask = tf.logical_and(nmask, nvalues < max_hard_pred)  # 置信度越小，表示误差越大，选误差大的，选出最终的负样本
+        fnmask = tf.cast(nmask, dtype)
+
+        # 得到pmask，nmask和对应的整数值fpmask,fnmask.
+        # Add cross-entropy loss.
+        with tf.name_scope('cross_entropy_pos'):
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
+                                                                  labels=gclasses)
+            loss = tf.div(tf.reduce_sum(loss * fpmask), batch_size, name='value')
+            tf.losses.add_loss(loss)
+
+        with tf.name_scope('cross_entropy_neg'):
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
+                                                                  labels=no_classes)
+            loss = tf.div(tf.reduce_sum(loss * fnmask), batch_size, name='value')
+            tf.losses.add_loss(loss)
+
+        # Add localization loss: smooth L1, L2, ...
+        with tf.name_scope('localization'):
+            # Weights Tensor: positive mask + random negative.
+            weights = tf.expand_dims(alpha * fpmask, axis=-1)
+            # 位置是比分数多了一个维度。(-1,4)
+            loss = custom_layers.abs_smooth(localisations - glocalisations)
+            loss = tf.div(tf.reduce_sum(loss * weights), batch_size, name='value')
+            tf.losses.add_loss(loss)
+```
