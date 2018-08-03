@@ -1,6 +1,14 @@
-### 1.数据集TFrecoeds制作
 
-数据集：PASCALVOC 2007，用于物体检测的注释在Annotations文件夹中，每张图片对应信息保存为xml文件。
+
+
+
+
+
+## 数据集
+
+### 1.1数据集TFrecoeds制作
+
+PASCALVOC 2007，用于物体检测的注释在Annotations文件夹中，每张图片对应信息保存为xml文件。
 
 ```xml
 <annotation>
@@ -365,7 +373,7 @@ while i < len(filenames):
    ```
 
 
-### 1.数据集读取
+### 1.2数据集读取
 
 #### tf.TFRecordReader
 
@@ -507,8 +515,586 @@ with tf.Session() as sess:
         print(sess.run(height))
 ```
 
+### 1.3slim库的数据集读取
 
-### 2.Anchors的生成
+#### slim.dataset.Dataset
+
+说白了，这个类就是个类似于`nametuple`的类，他自己是没什么卵用。
+
+> More concretely, TF-Slim's [dataset](https://tensorflow.google.cn/code/tensorflow/contrib/slim/python/slim/data/dataset.py) 
+> is **a tuple** that encapsulates the following elements of a dataset specification:
+>
+> + `data_sources`: A list of file paths that together make up the dataset
+> + `reader`: A TensorFlow [Reader](https://tensorflow.google.cn/api_docs/python/io_ops.html#ReaderBase) appropriate for the file type in `data_sources`.
+> + `decoder`: A TF-Slim [data_decoder](https://tensorflow.google.cn/code/tensorflow/contrib/slim/python/slim/data/data_decoder.py) class which is used to decode the content of the read dataset files.
+> + `num_samples`: The number of samples in the dataset.
+> + `items_to_descriptions`: A map from the items provided by the dataset to descriptions of each.
+>
+> In a nutshell, a dataset is read by (a) opening the files specified by `data_sources` using the given `reader` class (b) decoding the files using the given `decoder` and (c) allowing the user to request a list of `items` to be returned as `Tensors`.
+
+```python
+class Dataset(object):
+  """Represents a Dataset specification."""
+
+  def __init__(self, data_sources, reader, decoder, num_samples,
+               items_to_descriptions, **kwargs):
+        
+    print(kwargs)
+    kwargs['data_sources'] = data_sources # ./tfrecords/voc2007_train_*.tfrecord
+    kwargs['reader'] = reader
+    kwargs['decoder'] = decoder
+    kwargs['num_samples'] = num_samples
+    kwargs['items_to_descriptions'] = items_to_descriptions
+    print(kwargs)
+    self.__dict__.update(kwargs)
+    print(self.__dict__)
+```
+
+上面三行`print`是手动加的，看一下实例化一个对象的打印输出：
+
+```python
+dataset = Dataset(
+            data_sources='./tfrecords/voc2007_train_*.tfrecord',
+            reader=tf.TFRecordReader,  # reader = tf.TFRecordReader
+            decoder='decoder',
+            num_samples= 200,
+            items_to_descriptions='hahahhaha',
+            num_classes=21,
+            others='i dont know')
+# 仅为了演示，参数都传入字符串了,这里关键字参数有2个。
+>>>
+{'num_classes': 21, 'others': 'i dont know'}
+{'num_classes': 21, 'others': 'i dont know', 
+ 'data_sources': './tfrecords/voc2007_train_*.tfrecord', 
+ 'reader': <class 'tensorflow.python.ops.io_ops.TFRecordReader'>, 'decoder': 'decoder', 
+ 'num_samples': 200, 'items_to_descriptions': 'haha'}
+# 最后的kwargs与__dict__的值一样，都是属性及值的字典。
+```
+
+关键字参数，\*\*kwargs在传入时会打包成字典dict，可以看到这里允许用户传入一些其他与数据集相关的参数，这里主要理解：`__dict__`是一个字典，it contains all the attributes which describe the object 。猜测字典的`updata`方法可以更新属性值，如果没有则新增。
+
+##### Data Decoders：TFExampleDecoder
+
+构造slim.dataset.Dataset最重要的底下这两行了。
+
+```python
+reader=tf.TFRecordReader,
+decoder=？,
+```
+
+reader和数据集格式有关，decoder与read出来的数据格式有关。下面的代码是TFExampleDecoder的生成代码，可以看到参数`keys_to_features`格式与用[tf.TFRecordReader](#tf.tfrecordreader)读取数据时所用的时相同的字典格式：
+
+> A `TFExample` protocol buffer is a map from keys (strings) to either a  `tf.FixedLenFeature`  or `tf.VarLenFeature`.  
+>
+> Consequently, to decode a`TFExample`, one must provide a mapping from one or more `TFExample` fields to each of the `items` that the `tfexample_decoder` can provide. 
+>
+
+`TFExample`字段应该指的是`features`字典里的各个键值吧。通过下面的代码及上面的引用可以看到，`TFExampleDecoder`可以提供的items并不是与features的一一对应，**而是一对一，或者多对一**。
+
+```python
+keys_to_features = {
+    # 对于单个元素的变量，我们使用FixlenFeature来读取，需要指明变量存储的数据类型
+    'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
+    'image/format': tf.FixedLenFeature((), tf.string, default_value='jpeg'),
+    # shape
+    'image/height': tf.FixedLenFeature([1], tf.int64),
+    'image/width': tf.FixedLenFeature([1], tf.int64),
+    'image/channels': tf.FixedLenFeature([1], tf.int64),
+    'image/shape': tf.FixedLenFeature([3], tf.int64),
+    # 对于list类型的变量，我们使用VarLenFeature来读取，同样需要指明读取变量的类型
+    # bbox
+    'image/object/bbox/xmin': tf.VarLenFeature(dtype=tf.float32),
+    'image/object/bbox/ymin': tf.VarLenFeature(dtype=tf.float32),
+    'image/object/bbox/xmax': tf.VarLenFeature(dtype=tf.float32),
+    'image/object/bbox/ymax': tf.VarLenFeature(dtype=tf.float32),
+    # label
+    'image/object/bbox/label': tf.VarLenFeature(dtype=tf.int64),
+    'image/object/bbox/difficult': tf.VarLenFeature(dtype=tf.int64),
+    'image/object/bbox/truncated': tf.VarLenFeature(dtype=tf.int64),
+}
+items_to_handlers = {
+    'image': slim.tfexample_decoder.Image('image/encoded', 'image/format'),
+    'shape': slim.tfexample_decoder.Tensor('image/shape'),
+    'object/bbox': slim.tfexample_decoder.BoundingBox(
+            ['ymin', 'xmin', 'ymax', 'xmax'], 'image/object/bbox/'),
+    'object/label': slim.tfexample_decoder.Tensor('image/object/bbox/label'),
+    'object/difficult': slim.tfexample_decoder.Tensor('image/object/bbox/difficult'),
+    'object/truncated': slim.tfexample_decoder.Tensor('image/object/bbox/truncated'),
+}
+decoder = slim.tfexample_decoder.TFExampleDecoder(
+    keys_to_features, items_to_handlers)
+```
+
+上述所用到的实例都在`slim.tfexample_decoder.py`文件中定义，我们去看一看[tfexample_decoder.py](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/slim/python/slim/data/tfexample_decoder.py)：
+
++ `keys_to_features`[这个](#Data Decoders：TFExampleDecoder)上面解释了，TFExample key：`tf.VarLenFeature` or `tf.FixedLenFeature`instances
++ `items_to_handlers`也是字典，a dictionary from items (strings) to `ItemHandler`  instances，自己起的字符串与ItemHandler实例的映射。
+
+上面两个参数构成了`slim.tfexample_decoder.TFExampleDecoder`。
+
+而那些 `ItemHandler` 实例都是继承自 `Class ItemHandler` ：
+
+```python
+class ItemHandler(object):
+  """Specifies the item-to-Features mapping for tf.parse_example.
+  既指定用于解析Example proto的部分Features的列表，即用于多对一的多。
+  也指定用于对Example解析的结果进行后处理的函数，即返回多对一的一。
+  """
+  __metaclass__ = abc.ABCMeta
+
+  def __init__(self, keys):
+    """Constructs the handler with the name of the tf.Feature keys to use.
+    Args:
+      keys: the name of the TensorFlow Example Feature.
+    """
+    if not isinstance(keys, (tuple, list)):
+      keys = [keys]
+    self._keys = keys  # 保存所有用到的Feature name
+
+  @property
+  def keys(self):
+    return self._keys
+
+  @abc.abstractmethod
+  def tensors_to_item(self, keys_to_tensors):
+    """Maps the given dictionary of tensors to the requested item.
+
+    Args:
+      keys_to_tensors: a mapping of TF-Example keys to parsed tensors.
+
+    Returns:
+      the final tensor representing the item being handled.
+    """
+    pass
+```
+
+那Image、Tensor、BoundingBox这些子类 `ItemHandler` 都干了什么呢？有许多子类，目前我们只看这三个：
+
++ `class Tensor(ItemHandler)`
+
+```python
+class Tensor(ItemHandler):
+  """An ItemHandler that returns a parsed Tensor."""
+
+  def __init__(self, tensor_key, shape_keys=None, shape=None, default_value=0):
+    """Initializes the Tensor handler.
+
+    tensor_key：the name of the `TFExample` feature to read the tensor from.
+    返回no reshaping的Tensor，但仍然可以指定形状，来源有两个：shape_key，这个也是TFExample feature的名字或名字列表，shape则是人为提供。
+    """
+    if shape_keys and shape is not None:
+      raise ValueError('Cannot specify both shape_keys and shape parameters.')
+    if shape_keys and not isinstance(shape_keys, list):
+      shape_keys = [shape_keys]
+    self._tensor_key = tensor_key
+    self._shape_keys = shape_keys
+    self._shape = shape
+    self._default_value = default_value
+    keys = [tensor_key]
+    if shape_keys:
+      keys.extend(shape_keys)  # 把所有keys用来初始化_key
+    super(Tensor, self).__init__(keys)
+
+  def tensors_to_item(self, keys_to_tensors): 
+     # keys_to_tensors不知道是啥。。。应该就是tfexample解析出来的字典
+     # keys_to_tensors: a mapping of TF-Example keys to parsed tensors.
+    tensor = keys_to_tensors[self._tensor_key]
+    shape = self._shape
+    if self._shape_keys:
+      shape_dims = []
+      for k in self._shape_keys:
+        shape_dim = keys_to_tensors[k]
+        if isinstance(shape_dim, sparse_tensor.SparseTensor):
+          shape_dim = sparse_ops.sparse_tensor_to_dense(shape_dim)
+        shape_dims.append(shape_dim)
+      shape = array_ops.reshape(array_ops.stack(shape_dims), [-1])
+    if isinstance(tensor, sparse_tensor.SparseTensor):
+      if shape is not None:
+        tensor = sparse_ops.sparse_reshape(tensor, shape)
+      tensor = sparse_ops.sparse_tensor_to_dense(tensor, self._default_value)
+    else:
+      if shape is not None:
+        tensor = array_ops.reshape(tensor, shape)
+    return tensor
+```
+
++ `class Image(ItemHandler)`
+
+```python
+class Image(ItemHandler):
+  """An ItemHandler that decodes a parsed Tensor as an image."""
+
+  def __init__(self,
+               image_key=None,
+               format_key=None,
+               shape=None,
+               channels=3,
+               dtype=dtypes.uint8,
+               repeated=False,
+               dct_method=''):
+    """Initializes the image.
+
+    Args:
+      dtype: images will be decoded at this bit depth. Different formats
+        support different bit depths.
+          See tf.image.decode_image,
+              tf.decode_raw,
+      repeated: if False, decodes a single image. If True, decodes a
+        variable number of image strings from a 1D tensor of strings.
+      dct_method: An optional string. Defaults to empty string. It only takes
+        effect when image format is jpeg, used to specify a hint about the
+        algorithm used for jpeg decompression. Currently valid values
+        are ['INTEGER_FAST', 'INTEGER_ACCURATE']. The hint may be ignored, for
+        example, the jpeg library does not have that specific option.
+    """
+    if not image_key:
+      image_key = 'image/encoded'
+    if not format_key:
+      format_key = 'image/format'
+    # 把给出的不管几个features key付给继承父类的_key
+    super(Image, self).__init__([image_key, format_key])  
+    self._image_key = image_key
+    self._format_key = format_key
+    self._shape = shape
+    self._channels = channels
+    self._dtype = dtype
+    self._repeated = repeated
+    self._dct_method = dct_method
+
+  def tensors_to_item(self, keys_to_tensors):
+    """See base class."""
+    image_buffer = keys_to_tensors[self._image_key]
+    image_format = keys_to_tensors[self._format_key]
+
+    if self._repeated:
+      return functional_ops.map_fn(lambda x: self._decode(x, image_format),
+                                   image_buffer, dtype=self._dtype)
+    else:
+      return self._decode(image_buffer, image_format)
+
+  def _decode(self, image_buffer, image_format):
+        # 函数就不展示了
+        return image
+```
+
++ `class BoundingBox(ItemHandler)`：在检测任务中经常会用到哦。
+
+  参数一般为keys = ['ymin', 'xmin', 'ymax', 'xmax']，其中都是一张图像上多个bbox的坐标list。
+
+```python
+class BoundingBox(ItemHandler):
+  """An ItemHandler that concatenates a set of parsed Tensors to Bounding Boxes.
+  """
+
+  def __init__(self, keys=None, prefix=None):
+    """Initialize the bounding box handler.
+
+    Args:
+      keys: A list of four key names representing the ymin, xmin, ymax, mmax
+      prefix: An optional prefix for each of the bounding box keys.
+        If provided, `prefix` is appended to each key in `keys`.
+
+    Raises:
+      ValueError: if keys is not `None` and also not a list of exactly 4 keys
+    """
+    if keys is None:
+      keys = ['ymin', 'xmin', 'ymax', 'xmax']
+    elif len(keys) != 4:
+      raise ValueError('BoundingBox expects 4 keys but got {}'.format(
+          len(keys)))
+    self._prefix = prefix
+    self._keys = keys
+    self._full_keys = [prefix + k for k in keys]
+    super(BoundingBox, self).__init__(self._full_keys)
+
+  def tensors_to_item(self, keys_to_tensors):
+    """Maps the given dictionary of tensors to a concatenated list of bboxes.
+
+    Args:
+      keys_to_tensors: a mapping of TF-Example keys to parsed tensors.
+
+    Returns:
+      [num_boxes, 4] tensor of bounding box coordinates,
+        i.e. 1 bounding box per row, in order [y_min, x_min, y_max, x_max].
+    """
+    sides = []
+    for key in self._full_keys:
+      side = keys_to_tensors[key]
+      if isinstance(side, sparse_tensor.SparseTensor):
+        side = side.values
+      side = array_ops.expand_dims(side, 0)  # 例如[4,5] -> [[4,5]] (2)->(1,2)
+      sides.append(side)
+
+    bounding_box = array_ops.concat(sides, 0)  # (4,2)
+    # 上面两步操作是先扩维，然后连接；也可以直接stack吧
+    return array_ops.transpose(bounding_box)  # shape = (2,4)
+```
+
++ `class TFExampleDecoder(data_decoder.DataDecoder)`
+
+```python
+class TFExampleDecoder(data_decoder.DataDecoder):
+  """A decoder for TensorFlow Examples.
+解码Example proto buffers分两步，(1)解析Example，得到a set of tensors，(2)处理第一步得到的tensors得到用户需要的'item' tensors，也就是多对一的过程。
+所以，对于第一步解析需要keys_to_features，第二步需要a list of ItemHandlers，来告诉Decoder如何post_processing 第一部得到的tensors.
+  """
+
+  def __init__(self, keys_to_features, items_to_handlers):
+    """Constructs the decoder."""
+    self._keys_to_features = keys_to_features
+    self._items_to_handlers = items_to_handlers
+
+  def list_items(self):
+    """See base class."""
+    return list(self._items_to_handlers.keys())
+
+  def decode(self, serialized_example, items=None):
+    """Decodes the given serialized TF-example.
+
+    Args:
+      serialized_example: a serialized TF-example tensor.
+      items: the list of items to decode. These must be a subset of the item
+        keys in self._items_to_handlers. If `items` is left as None, then all
+        of the items in self._items_to_handlers are decoded.
+
+    Returns:
+      the decoded items, a list of tensor.
+    """
+    example = parsing_ops.parse_single_example(serialized_example,
+                                               self._keys_to_features)
+
+    # Reshape non-sparse elements just once, adding the reshape ops in
+    # deterministic order.
+    for k in sorted(self._keys_to_features):
+      v = self._keys_to_features[k]
+      if isinstance(v, parsing_ops.FixedLenFeature):
+        example[k] = array_ops.reshape(example[k], v.shape)
+
+    if not items:
+      items = self._items_to_handlers.keys()
+
+    outputs = []
+    for item in items:
+      handler = self._items_to_handlers[item]
+      keys_to_tensors = {key: example[key] for key in handler.keys}
+      # 我就想知道keys_to_tensors这个到底咋来的？答案↑👆：其实就是解析后example的子集
+      outputs.append(handler.tensors_to_item(keys_to_tensors))
+    return outputs
+```
+
+继承`DataDecoder`抽象类：
+
+```python
+import abc  # 这提莫的什么鬼？？？
+class DataDecoder(object):
+  """An abstract class which is used to decode data for a provider."""
+
+  __metaclass__ = abc.ABCMeta
+
+  @abc.abstractmethod
+  def decode(self, data, items):
+    """
+    Args:
+      data: A possibly encoded data format.
+      items: A list of strings, each of which indicate a particular data type.
+    Returns:
+      A list of `Tensors`, whose length matches the length of `items`, where
+      each `Tensor` corresponds to each item.
+    """
+    pass
+
+  @abc.abstractmethod
+  def list_items(self):
+    """Lists the names of the items that the decoder can decode.
+    Returns:
+      A list of string names.
+    """
+    pass
+```
+
+#### DatasetDataProvider
+
+定义在[`slim.dataset_data_provider.py`](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/slim/python/slim/data/dataset_data_provider.py)，不解释源码了，会用就得了。
+
+使用例子：
+
+```python
+provider = slim.dataset_data_provider.DatasetDataProvider(
+    dataset,
+    num_readers=FLAGS.num_readers,
+    common_queue_capacity=20 * FLAGS.batch_size,
+    common_queue_min=10 * FLAGS.batch_size,
+    shuffle=True)
+```
+
+```python
+class DatasetDataProvider(data_provider.DataProvider):
+
+  def __init__(self,
+               dataset,
+               num_readers=1,
+               reader_kwargs=None,
+               shuffle=True,
+               num_epochs=None,
+               common_queue_capacity=256,
+               common_queue_min=128,
+               record_key='record_key',
+               seed=None,
+               scope=None):
+    """Creates a DatasetDataProvider.
+    Note: if `num_epochs` is not `None`,  local counter `epochs` will be created
+    by relevant function. Use `local_variables_initializer()` to initialize
+    local variables.
+    Args:
+      dataset: An instance of the Dataset class.
+      num_readers: The number of parallel readers to use.
+      reader_kwargs: An optional dict of kwargs for the reader.
+      shuffle: Whether to shuffle the data sources and common queue when
+        reading.
+      num_epochs: The number of times each data source is read. If left as None,
+        the data will be cycled through indefinitely.
+      common_queue_capacity: The capacity of the common queue.
+      common_queue_min: The minimum number of elements in the common queue after
+        a dequeue.
+      record_key: The item name to use for the dataset record keys in the
+        provided tensors.
+      seed: The seed to use if shuffling.
+      scope: Optional name scope for the ops.
+    Raises:
+      ValueError: If `record_key` matches one of the items in the dataset.
+    """
+    key, data = parallel_reader.parallel_read(
+        # ./tfrecords/voc2007_train_*.tfrecord，匹配*应该是在这个函数完成，有时间再看吧。
+        dataset.data_sources,
+        reader_class=dataset.reader,
+        num_epochs=num_epochs,
+        num_readers=num_readers,
+        reader_kwargs=reader_kwargs,
+        shuffle=shuffle,
+        capacity=common_queue_capacity,
+        min_after_dequeue=common_queue_min,
+        seed=seed,
+        scope=scope)
+
+    items = dataset.decoder.list_items()
+    tensors = dataset.decoder.decode(data, items)
+
+    items_to_tensors = dict(zip(items, tensors))
+    if record_key in items_to_tensors:
+      raise ValueError('The item name used for `record_key` cannot also be '
+                       'used for a dataset item: %s', record_key)
+    items_to_tensors[record_key] = key
+
+    super(DatasetDataProvider, self).__init__(
+        items_to_tensors=items_to_tensors,
+        num_samples=dataset.num_samples)
+```
+
+继承：最主要的方法就是`get(items)`了
+
+```python
+class DataProvider(object):
+  """Maps a list of requested data items to tensors from a data source.
+
+  All data providers must inherit from DataProvider and implement the Get
+  method which returns arbitrary types of data. No assumption is made about the
+  source of the data nor the mechanism for providing it.
+  """
+  __metaclass__ = abc.ABCMeta
+
+  def __init__(self, items_to_tensors, num_samples):
+    """Constructs the Data Provider.
+
+    Args:
+      items_to_tensors: a dictionary of names to tensors.
+      num_samples: the number of samples in the dataset being provided.
+    """
+    self._items_to_tensors = items_to_tensors
+    self._num_samples = num_samples
+
+  def get(self, items):
+    """Returns a list of tensors specified by the given list of items.
+
+    The list of items is arbitrary different data providers satisfy different
+    lists of items. For example the Pascal VOC might accept items 'image' and
+    'semantics', whereas the NYUDepthV2 data provider might accept items
+    'image', 'depths' and 'normals'.
+
+    Args:
+      items: a list of strings, each of which indicate a particular data type.
+
+    Returns:
+      a list of tensors, whose length matches the length of `items`, where each
+      tensor corresponds to each item.
+
+    Raises:
+      ValueError: if any of the items cannot be satisfied.
+    """
+    self._validate_items(items)
+    return [self._items_to_tensors[item] for item in items]
+
+  def list_items(self):
+    """Returns the list of item names that can be provided by the data provider.
+
+    Returns:
+      a list of item names that can be passed to Get([items]).
+    """
+    return self._items_to_tensors.keys()
+
+  def num_samples(self):
+    """Returns the number of data samples in the dataset.
+
+    Returns:
+      a positive whole number.
+    """
+    return self._num_samples
+```
+
+### 1.4总结流程
+
+至此我们通过`provider.get()`得到了我们想要的数据，由于之前对代码的不熟悉，自底向上梳理了一遍代码，现在我们通过get()入口，自顶向下观察函数之间的调用
+
+```python
+provider =  slim.dataset_data_provider.DatasetDataProvider(
+                    dataset,
+                    num_readers=FLAGS.num_readers,
+                    common_queue_capacity=20 * FLAGS.batch_size,
+                    common_queue_min=10 * FLAGS.batch_size,
+                    shuffle=True)
+===========================================================
+|[image,labels] = provider.get(['image','label'])  # 啊真费事。
+|--key, data = parallel_reader.parallel_read(....)
+|--items = dataset.decoder.list_items()
+|--tensors = dataset.decoder.decode(data, items)
+|--|--decode(self, serialized_example, items=None)
+|--|--|--example = parsing_ops.parse_single_example(serialized_example,
+                                                    self._keys_to_features)
+|--|--|--|--outputs.append(handler.tensors_to_item(keys_to_tensors))
+|--|--|--|--return outputs # 用handler处理解析后tensor的结果
+|
+|--items_to_tensors = dict(zip(items, tensors))
+|--return [self._items_to_tensors[item] for item in items]
+===========================================================
+dataset.decoder
+===========================================================
+|dataset= slim.dataset.Dataset(
+            data_sources=file_pattern,  # ./tfrecords/voc2007_train_*.tfrecord
+            reader=reader,  # reader = tf.TFRecordReader
+            decoder=decoder,  # ?
+            num_samples=split_to_sizes[split_name],
+            items_to_descriptions=items_to_descriptions,
+            num_classes=num_classes,
+            labels_to_names=labels_to_names)
+|--decoder = slim.tfexample_decoder.TFExampleDecoder(keys_to_features, items_to_handlers)
+|----keys_to_features
+|----items_to_handlers
+```
+
+
+
+## 训练前细节
+
+### 2.1Anchors的生成
 
 为所有特征图生成anchors：layers_anchors: [(y,x,h,w),(y,x,h,w),(y,x,h,w)……]。元素为tuple类型。
 
@@ -635,10 +1221,6 @@ print(y)
 [[4][4][4][4][4]]]
 ```
 
-### print_configuration
-
-#### pprint
-
 ####  parallel_reader
 
 ```python
@@ -648,7 +1230,7 @@ data_files = parallel_reader.get_data_files(data_sources)
 
 
 
-### Preprocess
+### 2.2预处理图像增强
 
 ```python
 def preprocess_for_train(image, labels, bboxes,
@@ -711,7 +1293,219 @@ def preprocess_for_train(image, labels, bboxes,
         return image, labels, bboxes
 ```
 
-#### tf.boolean_mask
+### 2.3 encode bbox
+
+`class SSDNet`中的方法。
+
+对于原始图像和预处理后的图像，我么都需要为每一个特张图的每一个anchor**打正负标签**，并且把原始的bbox坐标[ymin,xmin,ymax,xmin]编码为可以用于回归的[cx，cy，h，w]。
+
+```python
+def bboxes_encode(self, labels, bboxes, anchors,
+                  scope=None):
+    """Encode labels and bounding boxes.
+    """
+    return ssd_common.tf_ssd_bboxes_encode(
+        labels, bboxes, anchors,
+        self.params.num_classes,
+        self.params.no_annotation_label,
+        ignore_threshold=0.5,
+        prior_scaling=self.params.prior_scaling,
+        scope=scope)
+```
+
+`tf_ssd_bboxes_encod`定义在`nets/ssd_common.py`:
+
+```python
+# Encoding boxes for all feature layers.
+def tf_ssd_bboxes_encode(labels,
+                         bboxes,
+                         anchors,
+                         num_classes,
+                         no_annotation_label,
+                         ignore_threshold=0.5,
+                         prior_scaling=[0.1, 0.1, 0.2, 0.2],
+                         dtype=tf.float32,
+                         scope='ssd_bboxes_encode'):
+    """Encode groundtruth labels and bounding boxes using SSD net anchors.
+    Encoding boxes for all feature layers.
+
+    Arguments:
+      labels: 1D Tensor(int64) containing groundtruth labels;
+      bboxes: Nx4 Tensor(float) with bboxes relative coordinates;
+      anchors: List of Numpy array with layer anchors;
+      matching_threshold: Threshold for positive match with groundtruth bboxes;
+      prior_scaling: Scaling of encoded coordinates.
+
+    Return:
+      (target_labels, target_localizations, target_scores):
+        Each element is a list of target Tensors.
+    """
+    with tf.name_scope(scope):
+        target_labels = []
+        target_localizations = []
+        target_scores = []
+        for i, anchors_layer in enumerate(anchors):
+            with tf.name_scope('bboxes_encode_block_%i' % i):
+                t_labels, t_loc, t_scores = \
+                    tf_ssd_bboxes_encode_layer(labels, bboxes, anchors_layer,
+                                               num_classes, no_annotation_label,
+                                               ignore_threshold,
+                                               prior_scaling, dtype)
+                target_labels.append(t_labels)
+                target_localizations.append(t_loc)
+                target_scores.append(t_scores)
+        return target_labels, target_localizations, target_scores
+```
 
 
+
+```python
+# Encoding boxes for one layers.
+def tf_ssd_bboxes_encode_layer(labels,
+                               bboxes,
+                               anchors_layer,
+                               num_classes,
+                               no_annotation_label,
+                               ignore_threshold=0.5,
+                               prior_scaling=[0.1, 0.1, 0.2, 0.2],
+                               dtype=tf.float32):
+    """Encode groundtruth labels and bounding boxes using SSD anchors from
+    one layer.
+
+    Arguments:
+      labels: 1D Tensor(int64) containing groundtruth labels;
+      bboxes: Nx4 Tensor(float) with bboxes relative coordinates;
+      anchors_layer: Numpy array with one layer's anchors;
+      matching_threshold: Threshold for positive match with groundtruth bboxes;
+      prior_scaling: Scaling of encoded coordinates.
+
+    Return:
+      (target_labels, target_localizations, target_scores): Target Tensors.
+    """
+    # Anchors coordinates and volume.
+    yref, xref, href, wref = anchors_layer  # 这些值都经过了归一化。
+    # yref和xref的shape为（38,38,1）；href和wref的shape为（4，），可以运算吗？
+    # 可以，实验证明形状由（38,38,1）=>（38,38,4）
+    ymin = yref - href / 2.  # 由中心点找左上、右下坐标
+    xmin = xref - wref / 2.
+    ymax = yref + href / 2.
+    xmax = xref + wref / 2.
+    # 由左上角和右下角坐标确定anchor面积，用于之后算IoU
+    vol_anchors = (xmax - xmin) * (ymax - ymin)
+
+    # Initialize tensors...
+    shape = (yref.shape[0], yref.shape[1], href.size)  # 比如，第一层(38,38,4)
+    # 初始化每个特征图上的点对应的各个box所属标签和类别（打标签）
+    feat_labels = tf.zeros(shape, dtype=tf.int64)  # 初始值0
+    feat_scores = tf.zeros(shape, dtype=dtype)
+    # 初始化box对应的ground truth的坐标（打标签）
+    feat_ymin = tf.zeros(shape, dtype=dtype)    #（38，38，4）
+    feat_xmin = tf.zeros(shape, dtype=dtype)
+    feat_ymax = tf.ones(shape, dtype=dtype)
+    feat_xmax = tf.ones(shape, dtype=dtype)
+
+    def jaccard_with_anchors(bbox):
+        """Compute jaccard score between a box and the anchors.
+        传入的是ground truth的bbox
+        """
+        int_ymin = tf.maximum(ymin, bbox[0])   # 左上角选大值
+        int_xmin = tf.maximum(xmin, bbox[1])
+        int_ymax = tf.minimum(ymax, bbox[2])   # 右下角选小值
+        int_xmax = tf.minimum(xmax, bbox[3])
+        h = tf.maximum(int_ymax - int_ymin, 0.)  # 可能不重叠，会为负值
+        w = tf.maximum(int_xmax - int_xmin, 0.)
+        # Volumes.
+        inter_vol = h * w
+        union_vol = vol_anchors - inter_vol \
+            + (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])  # 并 面积
+        jaccard = tf.div(inter_vol, union_vol)
+        return jaccard
+
+    # 这个不是IoU，是Io anchors，这里没用
+    def intersection_with_anchors(bbox):
+        """Compute intersection between score a box and the anchors.
+        """
+        int_ymin = tf.maximum(ymin, bbox[0])
+        int_xmin = tf.maximum(xmin, bbox[1])
+        int_ymax = tf.minimum(ymax, bbox[2])
+        int_xmax = tf.minimum(xmax, bbox[3])
+        h = tf.maximum(int_ymax - int_ymin, 0.)
+        w = tf.maximum(int_xmax - int_xmin, 0.)
+        inter_vol = h * w
+        scores = tf.div(inter_vol, vol_anchors)
+        return scores
+
+    def condition(i, feat_labels, feat_scores,
+                  feat_ymin, feat_xmin, feat_ymax, feat_xmax):
+        """Condition: check label index.
+        """
+        # groundtruth labels
+        # 遍历所有ground truth的框
+        # 即i与labels的第一维对比（实际上labels就是1D Tesnor），即有几个框，遍历几个框
+        r = tf.less(i, tf.shape(labels))
+        return r[0]
+
+    # 该函数大致意思是选择与gt box IOU最大的锚点框负责该gtbox的回归任务，
+    # 所以要循环找出匹配框
+    def body(i, feat_labels, feat_scores,
+             feat_ymin, feat_xmin, feat_ymax, feat_xmax):
+        """Body: update feature labels, scores and bboxes.
+        Follow the original SSD paper for that purpose:
+          - assign values when jaccard > 0.5;
+          - only update if beat the score of other bboxes.
+        """
+        # Jaccard score.
+        label = labels[i]
+        bbox = bboxes[i]
+        # 返回的是交并比,算一层特征图上所有的框和图像中第个i个ground truth的交并比
+        jaccard = jaccard_with_anchors(bbox)
+        # Mask: check threshold + scores + no annotations + num_classes.
+        # feat_scores初始值是0，所以这块已经把小于0的筛选掉
+        mask = tf.greater(jaccard, feat_scores)  # 形状还是（38，38，4）
+        # mask = tf.logical_and(mask, tf.greater(jaccard, matching_threshold))
+        mask = tf.logical_and(mask, feat_scores > -0.5)  # 这块不选大于0.5的???
+        mask = tf.logical_and(mask, label < num_classes)
+        imask = tf.cast(mask, tf.int64)  # 用于整型计算
+        fmask = tf.cast(mask, dtype)  # 用于浮点型计算
+        # Update values using mask. 更新
+        feat_labels = imask * label + (1 - imask) * feat_labels  # 1
+        feat_scores = tf.where(mask, jaccard, feat_scores)  # 2
+
+        # 选择与其IOU最大的GT bbox作为回归目标  # 3
+        feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
+        feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
+        feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
+        feat_xmax = fmask * bbox[3] + (1 - fmask) * feat_xmax
+
+        # Check no annotation label: ignore these anchors...
+        # interscts = intersection_with_anchors(bbox)
+        # mask = tf.logical_and(interscts > ignore_threshold,
+        #                       label == no_annotation_label)
+        # # Replace scores by -1.
+        # feat_scores = tf.where(mask, -tf.cast(mask, dtype), feat_scores)
+
+        return [i+1, feat_labels, feat_scores,
+                feat_ymin, feat_xmin, feat_ymax, feat_xmax]
+    # Main loop definition.
+    i = 0
+    [i, feat_labels, feat_scores,
+     feat_ymin, feat_xmin,
+     feat_ymax, feat_xmax] = tf.while_loop(condition, body,
+                                           [i, feat_labels, feat_scores,
+                                            feat_ymin, feat_xmin,
+                                            feat_ymax, feat_xmax])
+    # Transform to center / size.(38,38,4)
+    feat_cy = (feat_ymax + feat_ymin) / 2.
+    feat_cx = (feat_xmax + feat_xmin) / 2.
+    feat_h = feat_ymax - feat_ymin
+    feat_w = feat_xmax - feat_xmin
+    # Encode features.
+    feat_cy = (feat_cy - yref) / href / prior_scaling[0]
+    feat_cx = (feat_cx - xref) / wref / prior_scaling[1]
+    feat_h = tf.log(feat_h / href) / prior_scaling[2]
+    feat_w = tf.log(feat_w / wref) / prior_scaling[3]
+    # Use SSD ordering: x / y / w / h instead of ours.
+    feat_localizations = tf.stack([feat_cx, feat_cy, feat_w, feat_h], axis=-1)
+    return feat_labels, feat_localizations, feat_scores
+```
 
