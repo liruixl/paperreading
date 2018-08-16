@@ -1484,10 +1484,13 @@ def tf_ssd_bboxes_encode_layer(labels,
         # 返回的是交并比,算一层特征图上所有的框和图像中第个i个ground truth的交并比
         jaccard = jaccard_with_anchors(bbox)
         # Mask: check threshold + scores + no annotations + num_classes.
-        # feat_scores初始值是0，所以这块已经把小于0的筛选掉
+        # feat_scores初始值是就是0，所以这块已经把小于0的筛选掉，不可能有负分啊
         mask = tf.greater(jaccard, feat_scores)  # 形状还是（38，38，4）
         # mask = tf.logical_and(mask, tf.greater(jaccard, matching_threshold))
-        mask = tf.logical_and(mask, feat_scores > -0.5)  # 这块不选大于0.5的???
+        mask = tf.logical_and(mask, feat_scores > -0.5)  
+        # 这块咋不选大于0.5的???这特么的有问题啊，上上一句已经把小于0的排除了啊。
+        # 看来是只要有IoU>0，这里就给打标签。在计算损失的时候再考虑正负样本的问题
+        # 所以要传入scores到网络中，再计算损失的时候用来筛选出正样本
         mask = tf.logical_and(mask, label < num_classes)
         imask = tf.cast(mask, tf.int64)  # 用于整型计算
         fmask = tf.cast(mask, dtype)  # 用于浮点型计算
@@ -1740,10 +1743,10 @@ def ssd_losses(logits, localisations,
         # 负样本布尔标志 1表示是负样本的
         nmask = tf.logical_and(tf.logical_not(pmask),
                                gscores > -0.5)
-        # ?????大于-0.5什么鬼，首先not pmask中已经把正例去掉，
-        # -0.5应该是在负例中再次筛选，太负的就不要了
+        # ?????大于-0.5什么鬼，首先not pmask中已经把正样本去掉，
+        # gscore是在encode bbox计算的，也没有负的啊
         # 要注意这个score特么怎么算的2018/7/29
-        # 答：算IoU，两个不重叠的框会出现负值哦2018/8/3
+        # 答：算IoU，两个不重叠的框会出现负值哦，但是负值被筛选掉了啊2018/8/3
         fnmask = tf.cast(nmask, dtype)
         nvalues = tf.where(nmask,
                            predictions[:, 0],# 是负样本，取出对应的预测置信分数
@@ -1758,17 +1761,24 @@ def ssd_losses(logits, localisations,
         val, idxes = tf.nn.top_k(-nvalues_flat, k=n_neg) # ====关键===为什么选置信度小的的？
         max_hard_pred = -val[-1]  # 最大负样本置信度，如[-0.1,-0.2,-0.5]->0.5
         # Final negative mask.
-        nmask = tf.logical_and(nmask, nvalues < max_hard_pred)  # 置信度越小，表示误差越大，选误差大的，选出最终的负样本
+        nmask = tf.logical_and(nmask, nvalues < max_hard_pred)  # 置信度越小，表示误差越大，难道是选误差大的？？？选出最终的负样本
         fnmask = tf.cast(nmask, dtype)
 
-        # 得到pmask，nmask和对应的整数值fpmask,fnmask.
+        # ========================损失函数==================================
+        # 得到pmask，nmask和对应的整数值1/0：fpmask,fnmask.
         # Add cross-entropy loss.
         with tf.name_scope('cross_entropy_pos'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=gclasses)
+            # 为什么是除以batch_size???
             loss = tf.div(tf.reduce_sum(loss * fpmask), batch_size, name='value')
             tf.losses.add_loss(loss)
-
+            
+            # loss_n = tf.div(tf.reduce_sum(loss * fnmask), batch_size, name='value')
+            # 上一行代码应该跟负样本损失一样啊，no_classes与fpmask都是整形标志啊
+            # no_classes相当于把正样本全置为1，负样本为0，
+            # 反正都是从负样本中按照fnmask标志选出用于回归的负样本损失值，跟置不置1没什么关系啊
+            
         with tf.name_scope('cross_entropy_neg'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=no_classes)
@@ -1783,4 +1793,78 @@ def ssd_losses(logits, localisations,
             loss = custom_layers.abs_smooth(localisations - glocalisations)
             loss = tf.div(tf.reduce_sum(loss * weights), batch_size, name='value')
             tf.losses.add_loss(loss)
+```
+Smooth L1函数：
+
+```python
+def abs_smooth(x):
+    """Smoothed absolute function. Useful to compute an L1 smooth error.
+
+    Define as:
+        x^2 / 2         if abs(x) < 1
+        abs(x) - 0.5    if abs(x) > 1
+    We use here a differentiable definition using min(x) and abs(x). Clearly
+    not optimal, but good enough for our purpose!
+    """
+    absx = tf.abs(x)
+    minx = tf.minimum(absx, 1)
+    r = 0.5 * ((absx - 1) * minx + absx)
+    return r
+```
+
+#### 3.2.1损失函数
+
+代码中这段注释是我理解错了：
+
+```python
+# loss_n = tf.div(tf.reduce_sum(loss * fnmask), batch_size, name='value')
+# 上一行代码应该跟负样本neg损失一样啊，no_classes与fpmask都是整形标志啊
+# no_classes相当于把正样本全置为1，负样本为0，
+# 反正都是从负样本中按照fnmask标志选出用于回归的负样本损失值，跟置不置1没什么关系啊
+```
+
+问题就出在“正样本全置为1，负样本为0”这句话，代码中`no_classes`是来自`pmask`，而`pmask`来自`gscores>0.5`，虽然`gscores`是与`gclasses`一一对应（有类别就有分数除了背景0），但是`gscores>0.5`就不一一对应了，例如可能：[7，0，15，5]------IoU>0.5---->[1，0，0，0]，虽然有类别15，5，但IoU<0.5，还是GG。
+
+知道了正样本的对应关系，负样本的就好理解了，`nmask`来自`not pmask`，再经过排序筛选得出：
+
+[1，0，0，0]---not---->[0，1，1，1]--筛选-->[0，1，0，1]，所以不能用gclasses计算负样本损失，因为打了类别标签的也不一定是正样本，说白了就是再2.3节encode box中打错标签了！！！！所以这个坑在计算损失函数的时候来填，对应上面给出的简单例子[7,0,15,5]：
+
++ 正样本Loss：fpmask[1,0,0,0]，只计算7的
+
++ 负样本Loss：fnmask[0,1,0,1]，计算0和5的，但这时候修正label=noclasses=[1,0,0,0]，
++ 如果是按照我想的，fnmask[0,1,0,1]，计算0和5的，label = [7,0,15,5]，那么5对应的标签就错了，应该是0
+
+![SSD_Loss](../img/SSD_Loss.png)
+
+#### 3.2.2负样本排序
+
+[Hard negative mining](https://www.zhihu.com/question/46292829)
+
+> 研究了一下，希望对你有帮助。首先是negative，即负样本，其次是hard，说明是困难样本，也就是说在对负样本分类时候，loss比较大（label与prediction相差较大）的那些样本，也可以说是容易将负样本看成正样本的那些样本，例如roi里没有物体，全是背景，这时候分类器很容易正确分类成背景，这个就叫easy negative；如果roi里有二分之一个物体，标签仍是负样本，这时候分类器就容易把他看成正样本，这时候就是had negative。
+> hard negative mining就是多找一些hard negative加入负样本集，进行训练，这样会比easy negative组成的负样本集效果更好。主要体现在虚警率更低一些（也就是false positive少）。
+
+所以排序时并不是把那些预测背景类别得分高的那些，而是得分低的那些，说明你网络没猜对，HARD！
+
+### 3.3Train
+
+```python
+g = tf.Graph()
+
+# Create the model and specify the losses...
+...
+
+total_loss = slim.losses.get_total_loss()
+optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+
+# create_train_op ensures that each time we ask for the loss, the update_ops
+# are run and the gradients being computed are applied too.
+train_op = slim.learning.create_train_op(total_loss, optimizer)
+logdir = ... # Where checkpoints are stored.
+
+slim.learning.train(
+    train_op,
+    logdir,
+    number_of_steps=1000,
+    save_summaries_secs=300,
+    save_interval_secs=600):
 ```
