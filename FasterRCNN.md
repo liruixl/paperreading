@@ -99,7 +99,7 @@ Pi  表示anchor  i 是物体的概率。
 
 Pi*是标签，0或1，表示anchor i 里面是不是个东西。
 
-文中：N_cls是mini-batch size=256，N_reg是the number of anchor locations，H×W=~2400。
+文中：N_cls是mini-batch size=256，是一张图片采样256个正负样本。N_reg是the number of anchor locations，H×W=~2400。
 
 + **注意**：这里2400到底是特征图的尺寸H×W，还是anchor的数量。。。。文中有下面一句：
 
@@ -127,7 +127,7 @@ t的定义在RCNN中，与RCNN中用到pooling5层中输出的特征用于回归
 
 > we **randomly sample** 256 anchors in an image to compute the loss function of a mini-batch, where the sampled positive and negative anchors have a ratio of up to **1:1**. If there are fewer than 128 positive samples in an image, we pad the mini-batch with negative ones.    
 
-那就是输入一张图像，卷积后输出特征图，比如38×50×512，那就是38×50×9个anchors中只有256个anchor被采样，用来计算损失。正负样本1：1。再比如cls回归输出30×50×（2×9），只有2×256的数被利用。再细节一节中提到大约有6000个anchor可以用于训练。
+那就是输入一张图像，卷积后输出特征图，比如38×50×512，那就是38×50×9个anchors中的正负样本只有256个anchor被采样，用来计算损失。正负样本1：1。再比如cls回归输出30×50×（2×9），只有2×256的数被利用。再细节一节中提到大约有6000个anchor可以用于训练。
 
 ##### 初始化
 
@@ -177,6 +177,16 @@ Alternating training：此方法其实就是一个不断迭代的训练过程，
 ![fastrcnn_anchor_size](img/fastrcnn_anchor_size.png)
 
 + For a typical 1000 × 600 image, there will be roughly 20000 (≈ 60 × 40 × 9) anchors in total. With the cross-boundary anchors ignored, there are about 6000 anchors per image for training.
+
 + During testing, however, we still apply the fully convolutional RPN to the entire image. This may generate cross-boundary proposal boxes, which we clip to the image boundary. 
+
 + Some RPN proposals highly overlap with each other. To reduce redundancy, we **adopt non-maximum suppression (NMS) on the proposal regions based on their cls scores.** We fix the IoU threshold for NMS at **0.7**, which **leaves us about 2000 proposal regions per image**. As we will show, NMS does not harm the ultimate detection accuracy, but substantially reduces the number of proposals. **After NMS, we use the top-N ranked proposal regions for detection**. In the following, **we train Fast R-CNN using 2000 RPN proposals**, but evaluate different numbers of proposals at test-time. 
+
++ 给fast-rcnn提供训练数据时:
+
+  输入->输出->nms->输出topk 2000个候选的样本作为fast-rcnn训练样本
+
++ 完整模型, test时:
+
+  输入->输出->nms->输出topk 300个候选的样本, 供fast-rcnn进行预测
 

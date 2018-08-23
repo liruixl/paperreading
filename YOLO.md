@@ -12,9 +12,9 @@
 
 ## Problem and Achievements
 
-文中在introduction部分提到了DPM（deformable parts models）和R-CNN，都是各部分独立训练。当然SPPnet也是独立训练，只不过不是将图片分成2000个区域输入网络，而是在特征图上做spp pooling操作；而Fast RCNN和Faster RCNN把特征提取、分类训练、定位训练放在一起，但是仍然需要给出区域建议框。只不过Faster RCNN是训练RPN网络，让RPN网络自己给出建议框。
+文中在introduction部分提到了DPM（deformable parts models）和R-CNN，都是各部分独立训练。当然SPPnet也是独立训练，只不过不是将图片分成2000个区域输入网络，而是在特征图上做spp pooling操作；而Fast RCNN和Faster RCNN把特征提取、分类回归放在一起，但是仍然需要给出区域建议框。只不过Faster RCNN是训练RPN网络，让RPN网络自己给出建议框。
 
-> We reframe object detection as a single regression problem, straight from image pixels to bounding box coordinates and class probabilities.
+> We reframe object detection as a single regression problem, straight from image pixels to bounding box coordinates and class probabilities.
 
 + extremely fast. **45fps on a Tirtan GPU**；150 fps using a fast version.
 
@@ -32,7 +32,7 @@
 
 ![YOLO_Net](img/YOLO_Net.png)
 
-说实话，网络结构没搞清楚。。。。。后面是两个Conn layer。。。只知道~~一顿操作~~一张448×448×3的图像输出为7×7×30的特征图。那么这个7×7×30的特征图包含了哪些信息呢，或者说，作者要假设这些数值代表什么含义，又或者说，作者想让每个数值朝着哪个信息拟合。在文中第2节作者给出了答案。在此梳理一下：
+是24个卷积层唉！后面是两个Conn layer。。。只知道~~一顿操作~~一张448×448×3的图像输出为7×7×30的特征图。那么这个7×7×30的特征图包含了哪些信息呢，或者说，作者要假设这些数值代表什么含义，又或者说，作者想让每个数值朝着哪个信息拟合。在文中第2节作者给出了答案。在此梳理一下：
 
 > Our network uses features from the entire image to predict each bounding box.    
 

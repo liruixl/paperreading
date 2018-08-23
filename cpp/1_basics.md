@@ -326,7 +326,7 @@ x = sizeof (char);  //1 ，1bytes
 
 > Enclosing all sub-statements in parentheses (even those unnecessary because of their precedence) improves code readability.
 
-![1534232779794](assets/Precedence of operators.png)
+![img](assets/Precedence of operators.png)
 
 ## Basic Input/Output
 
