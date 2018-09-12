@@ -45,6 +45,44 @@ C#中提供五种泛型分别是：**classes, structs, interfaces, delegates, an
 
 
 
+# loadPicture
+
+出现异常用默认黑图替代
+
+```c#
+public Image loadPicture(string fp)
+{
+    Image image = null;
+    System.IO.FileStream fs = null;
+    try
+    {
+        fs = new System.IO.FileStream(fp, System.IO.FileMode.Open, System.IO.FileAccess.Read);
+        image = System.Drawing.Image.FromStream(fs);
+        //fs.Close();
+    }
+    catch (Exception e)
+    {
+        string unseenpath = System.Environment.CurrentDirectory.ToString();
+        unseenpath = unseenpath + "\\data\\unseen.tif";
+        fs = new System.IO.FileStream(unseenpath, System.IO.FileMode.Open, System.IO.FileAccess.Read);
+        image = System.Drawing.Image.FromStream(fs);
+        //fs.Close();
+        LogHelper.WriteLog(string.Format("写入路径不正确：{0}", fp), e);
+        System.Diagnostics.Debug.Write(e.Message.ToString());
+    }
+    finally
+    {
+        if (fs != null)
+        {
+            fs.Close();
+        }
+    }
+    return image;
+}
+```
+
+
+
 
 
 # manipulateMDBData
@@ -170,6 +208,38 @@ public DataTable searchData(string mdbPath, string sql){
 }
    ```
 
+# ShowListViewByDt
 
+```c#
+public void ShowListViewByDt(ListView listView, ArrayList filepath, string groupname,
+                             Form classifier){
+    //缺陷缩略图的显示
+    //涉及到ListView类的使用
+    //涉及到图片的读取：loadPicture方法
+    //还有进度条progressbar类
+}
+```
 
-   
+[ListView类的使用](https://blog.csdn.net/chen_zw/article/details/7910324)
+
+关键代码（省略）
+
+```c#
+ImageList il = new ImageList();//管理一套Image对象
+listView.LargeImageList = il;
+ListViewItem[] lvi = new ListViewItem[filepath.Count];
+for (int i = 0; i < totallength; i++){
+	lvi[i] = new ListViewItem(new string[] { filename, groupname, fp }, i, groupsArray);
+    //...
+    Image image = getImg(filepath);
+    il.Images.Add(image);
+}
+listView.Items.Add(lvi[i]);
+```
+
+上边`new ListViewItem`：
+
+> Initializes a new instance of the ListViewItem class with the specified item text and the image index position of the item's icon, and assigns the item to the specified group
+
+image index应该对应`listView.LargeImageList`里的`ImageList`。
+

@@ -1,12 +1,25 @@
+# BanSort
+
+```c#
+void BanSort(){
+    //禁止排序，用于类列表和缺陷列表
+    //dgvDefectObjectList.Columns[i].SortMode = DataGridViewColumnSortMode.NotSortable;
+}
+```
+
+
+
 # pubSampleOpen
 
-打开样本库
+`打开样本库`按钮触发
 
 ```c#
 private void pubSampleOpen(string tmpfp){
     //temfp:存放mdb文件的路径
     
-    //
+    //显示缺陷列表dgvDefectObjectList
+    //显示缺陷缩略图imagelistview
+    //显示详细图PictureBox类
 }
 ```
 
@@ -59,9 +72,34 @@ private void pubSampleOpen(string tmpfp){
    //g.Count()本身返回的就是分组后的元素数
    ```
 
-   
+# searchRect
 
-   
+   ```c#
+   listRect = new List<Rectangle>();//查询之前要置空
+   private void searchRect(string dss, string ddi, string dil){
+       //dss:缺陷形状,ddi:dpu_id,dil:imageLabel
+       //实际上为listRect赋值：一张图片上所有缺陷的矩形坐标（4个值）列表
+   }
+   ```
+
+# ShowClearPic
+
+```c#
+void ShowClearPic(string path,PictureBox pb){
+    //在pb中显示路径为path的图片
+    //showROI
+}
+```
+
+# showROI
+
+4484没弄懂他是咋画的
+
+```c#
+private void showROI()
+```
+
+
 
 
 
