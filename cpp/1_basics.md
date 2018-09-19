@@ -34,13 +34,16 @@ int main()
 
 + Character type
   + char：Exactly one byte in size. At least 8 bits. 
-  + char16_t：Not smaller than `char`. At least 16 bits. 
-  + char32_t： Not smaller than `char16_t`. At least 32 bits. 
+  + char16_t：Not smaller than `char`. At least 16 bits.  C++11新增
+  + char32_t： Not smaller than `char16_t`. At least 32 bits.  C++11新增
   + wchar_t：Can represent the largest supported character set. 
 
-+ Numerical integer type
++ Numerical integer type（5种，有符号无符号10种）
   + signed char：Same size as `char`. At least 8 bits. 
-  + signed short int： Not smaller than `char`. At least 16 bits. 
+
+    虽然可用来表示字符，也可以用作比short更小的整形。
+
+  + signed short int： Not smaller than `char`. At least 16 bits.  2字节
   + signed int： Not smaller than `short`. At least 16 bits. 
   + signed long int： Not smaller than `int`. At least 32 bits. 
   + signed long long int：Not smaller than `long`. At least 64 bits. 
@@ -50,8 +53,11 @@ int main()
   + float
   + double
   + long double
+
 + Boolean type：bool
+
 + Void type：void,  identifies the lack of type 
+
 + Null pointer：decltype（nullptr）
 
 The names of certain integer types can be abbreviated without their `signed` and `int` components.
@@ -61,7 +67,8 @@ The names of certain integer types can be abbreviated without their `signed` a
 ```c++
 int a=5;               // initial value: 5
 int b(3);              // initial value: 3
-int c{2};              // this was introduced by the revision of the C++ standard, in 2011
+int c{2};// this was introduced by the revision of the C++ standard, in 2011
+int c={2};
 int result;            // initial value undetermined
 
 // Type deduction: auto and decltype
@@ -229,7 +236,7 @@ assigns the value on the right-hand to the variable on its left
 ```c++
 x = 5;
 y = 2 + (x = 5);
-x = y = z = 5;
+x = y = z = 5; //连续使用是合法的
 ```
 
 ### Arithmetic operators 

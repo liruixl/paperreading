@@ -8,7 +8,7 @@ int foo [5] = { 16, 2, 77, 40, 12071 };
 int foo [5] = { 10, 20, 30 };  //其余默认为0
 int foo [] = { 16, 2, 77, 40, 12071 };  //当确定的数组值被提供，允许不指定大小
 
-int foo[] { 10, 20, 30 };   //universal initialization also for arrays.
+int foo[] { 10, 20, 30 };   //universal initialization also for arrays.可以省略等号。
 // int []  foo;  //不可以这样吧 java可以
 int baz [5] = { };  //,默认全是0
 
@@ -79,12 +79,12 @@ myword[3] = '\0';
 
 ```c++
 char question1[] = "What is your name? "; //C-sring
-string question2 = "Where do you live? "; // library strings，#include <string>
+string question2 = "Where do you live? "; // library strings，#include <string>是对象
 ```
 
 > Arrays have a fixed size that needs to be specified either implicit or explicitly when declared,  while strings are simply strings, no size is specified. This is due to the fact that strings have a dynamic size **determined during runtime**, while the size of arrays is **determined on compilation**, before the program runs. 
 
-
+C++常常使用指针来处理字符串。
 
 # Pointers
 
