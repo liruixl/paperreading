@@ -147,17 +147,19 @@ Once features are extracted and training labels are applied, we optimize one lin
 >
 > 具体看[ 边框回归(Bounding Box Regression)详解 ](https://blog.csdn.net/zijin0802034/article/details/77685438)
 
-![boundingbox_reg](img\boundingbox_reg.png)
+
+
+![boundingbox_reg](img/boundingbox_reg.png)
 
 
 
 推倒过程如下：每个d(P)与pooling5的输出特征有关（这是个假设吧，但是6×6×256？？，w与φ(P)的乘积能是一个数？？？），学习的目的是让d(P)与 t 无限接近，学习的参数是下图中的w。P=（Px，Py，Pw，Ph），(x，y)是候选框P的中心点坐标。
 
-![p2g_transformation](img\p2g_transformation.png)
+![p2g_transformation](img/p2g_transformation.png)
 
 λ=1000
 
-![t_of_p2g](img\t_of_p2g.png)
+![t_of_p2g](img/t_of_p2g.png)
 
 
 
