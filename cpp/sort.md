@@ -10,6 +10,8 @@
 
 [堆排序](#堆排序)：构造大顶堆，根节点（第一个）与尾节点（最后一个）交换，（也就是找出了最大值，放到了最后）。
 
+[归并排序](#归并排序)：分治策略
+
 # 冒泡排序
 
 ```c++
@@ -393,5 +395,56 @@ void HeapAdjust(vector<int> &list, int parent, int length){
 
 # 归并排序
 
+参考：https://www.cnblogs.com/chengxiao/p/6194356.html
+
+```c++
+//==============================归并排序===============================================
+void Merge(vector<int> &input, int left, int mid, int right, vector<int> temp) {
+	int i = left;
+	int j = mid + 1;
+	int k=0;
+
+	while (i <= mid && j <= right) {
+		if (input[i] < input[j]) {
+			temp[k++] = input[i++];
+		}
+		else {
+			temp[k++] = input[j++];
+		}
+	}
+	while (i <=mid) {
+		temp[k++] = input[i++];
+	}
+	while (j <=right) {
+		temp[k++] = input[j++];
+	}
+
+	k = 0;
+	// 将合并序列复制到原始序列中
+	while (left <= right) {
+		input[left++] = temp[k++];
+	}
+}
 
 
+void MergeSort(vector<int> &input, int left, int right, vector<int> temp) {
+	if (left < right) {
+		int mid = (right + left) >> 1;
+		MergeSort(input, left, mid, temp);
+		MergeSort(input, mid + 1, right, temp);
+		Merge(input, left, mid, right, temp);
+	}
+}
+
+void mergesort(vector<int> &input) {
+	// 在排序前，先建好一个长度等于原数组长度的临时数组，避免递归中频繁开辟空间
+	vector<int> temp(input.size());
+	MergeSort(input, 0, input.size() - 1, temp);
+}
+```
+
+
+
+# 基数排序
+
+待
