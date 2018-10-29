@@ -86,6 +86,51 @@ for (beginX = 1; beginX < pixels.size(); beginX++)
 	}
 ```
 
+2586
+
+```c++
+cv::rectangle(a,cvPoint(beginX*20+100,0),cvPoint(beginX*20+1+100,height),cvScalar(255,0,0),1);  //+100什么意思？
+```
+
+2659 怎么beginX都是加。
+
+```c++
+//从三个值考虑,去掉无用的数据
+ 	int dif1 = abs(beginX - up_beginX);
+	int dif2 = abs(beginX - down_beginX);
+	int dif3 = abs(endX - up_endX);
+	int dif4 = abs(endX - down_endX);
+	int b_count = 1, e_count = 1; //代表什么？
+
+
+	if (dif1 <= 2)
+	{
+		beginX += up_beginX;
+		b_count++;
+	}
+	if (dif2 <= 2)
+	{
+		beginX += down_beginX;
+		b_count++;
+	}
+	if (dif3 <= 2)
+	{
+		endX += up_endX;
+		e_count++;
+	}
+	if (dif4 <= 2)
+	{
+		endX +=  down_endX;
+		e_count++;
+	}
+	
+	beginX = (int)(((double)beginX / b_count + 0.25) * 20 + _dpuParams[paramIndex].left_coefficient);
+	endX = (int)(((double)endX / e_count - 1) * 20 + _dpuParams[paramIndex].right_coefficient);
+
+```
+
+
+
 # 预处理
 
 1. 投影，光照均衡？相当于128是阈值，高于128减一点，低于128的加一点
