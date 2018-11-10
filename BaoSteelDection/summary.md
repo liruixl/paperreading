@@ -12,13 +12,17 @@ Left_Coefficient=85:90:100:      //倾斜时更新beginX加上此值？
 Right_Coefficient=135:130:130:   //倾斜时更新endX加上此值？
 DropHeight=910:910:910:  //若钢条高度小于dropHeight则跳过检测
 DropWidth=140:200:200:   //若钢条宽度小于dropWidth则跳过检测
+
 clusterX=15:15:15:    //标记连通域用到
 clusterY=100:100:50:
+
 black_Intensity=0.8:0.8:0.85: //裁剪图BINARY_INV中二值图系数，在预处理一节
-gaussSize_X_Left=11:11:9:
+
+gaussSize_X_Left=11:11:9: //#方向梯度，高斯kernel尺寸
 gaussSize_X_Right=5:5:5:
 gaussSize_Y_Left=3:3:5:
 gaussSize_Y_Right=11:11:9:
+
 dilate_Intensity=3:3:3:
 Oxide_GuiGe=0:12:15:
 Oxide_Sobel_X=0:30:50:
@@ -27,8 +31,10 @@ Oxide_Gaussian_X_Left=0:11:9:
 Oxide_Gaussian_X_Right=0:7:5:
 Oxide_Gaussian_Y_Left=0:7:5:
 Oxide_Gaussian_Y_Right=0:11:11:
-sobel_X=40:50:55:
+
+sobel_X=40:50:55:   //看#方向梯度一节，二值化梯度图的阈值
 sobel_Y=40:55:100:
+
 pointthres=16:20:40:
 Oxide_pointthres=10:20:20:
 proX_Size=1:1:0.27:
@@ -38,7 +44,7 @@ RollSeam_Low=0.84:0.72:0.66:
 conutSum=450:20:20:
 Oxide_Intensity=0:4000:5500:
 Black_Coefficient=0.9:0.15:0:
-PixelsMin=70:80:100:
+PixelsMin=70:80:100:     //#合并缺陷一节用到，缺陷像素数少与此此值的不放入list中
 Vertical_Resolution=0.3:0.3:0.3:
 Horizaontal_Resolution=0.058:0.058:0.058:
 cameraHeight=1000
@@ -501,7 +507,7 @@ operator_clean3(m_ori,         //光照均衡图 的克隆 看#求平均灰度&�
                 tmpObjectList);
 ```
 
-#### DefectObjectLists
+#### DefectObjectList
 
 缺陷类列表：
 
@@ -894,7 +900,7 @@ for (int i = 0; i < width*height;i++)
 	}
 ```
 
-最后，
+最后，放入 DefectObjectList myList;
 
 ```c++
 	mydefect = finalDefect;
@@ -927,7 +933,7 @@ for (int i = 0; i < width*height;i++)
 
 ##### 6 其他
 
-赋值给 传入干净度三的参数 `tmpObjectList`，至此干净度算法结束。
+赋值给 传入干净度三的参数 `tmpObjectList`，至此干净度三算法结束。
 
 ```c++
 	int id = 0;
@@ -958,7 +964,7 @@ for (int i = 0; i < width*height;i++)
 			{
 				GlobalEntity::DefectObject defectObj = myList.at(i);
 
-				tmpObjectList.push_back(defectObj);
+				tmpObjectList.push_back(defectObj);  //这里将参数temObjectList赋值
 				break;
 			}
 
@@ -974,19 +980,288 @@ for (int i = 0; i < width*height;i++)
 
 暂且不聊
 
+2018/10/30
+
+循环处理 tmpObjectList 中的每一个缺陷框，其中元素为结构体 [DefectObject](#DefectObjectList) 。、
+
+//计算缺陷框灰度低于30的点的个数，个数大于200，有孔洞嫌疑。
+
+#### 确定位置？
+
+```c++
+//为什么还要确定位置
+p1.x=rect.x;  
+p1.y=rect.y;  
+p2.x=rect.x+rect.width-1;  
+p2.y=rect.y+rect.height-1;
+//左边界
+if (p1.x >= addWidth)  //addWidth是什么意思？
+    p1.x-=addWidth;
+else
+    p1.x = 0;
+//右边界
+if (p2.x < width - addWidth)
+    p2.x += addWidth;
+else
+    p2.x = width - 1;
+//上边界
+if (p1.y >= addHeight)
+    p1.y -= addHeight;
+else
+    p1.y = 0;
+//下边界
+if (p2.y < height - addHeight)
+    p2.y += addHeight;
+else
+    p2.y = height - 1;
+
+obj.posX = p1.x+beginX;
+obj.posY = p1.y+beginY;
+
+obj.width = p2.x - p1.x + 1;
+obj.height = p2.y - p1.y + 1;
+
+Rect rect_big = cv::Rect(obj.posX,obj.posY,obj.width,obj.height);//原图位置上的坐标
+```
+
+#### 计算特征
+
 ```c++
 std::list<double> FeatureList = std::list<double>();
 if(featureNameList.size()!= 0)
 {
-    //long long time1 = IceUtil::Time().now().toMilliSeconds();
-    c5calfeature->CalcFeature(  tempMat,
-                                edgemask,areamask,grad,gradx,grady,
-                                FeatureList,featureNameList);
+    //
+    c5calfeature->CalcFeature(tempMat,  //原始裁剪图的rect_big
+                              edgemask, //去小点图的，不是rect_big大吧
+                              areamask, //膨胀图？
+                              grad, //m_grad
+                              gradx,
+                              grady,
+                              FeatureList,
+                              featureNameList);  //成员变量
     int tmpshape = predict(FeatureList, FeatureList.size())+1;			
     obj.subshape = tmpshape;
 }
 ```
-predict
+再`CalcFeature`函数中使用到了 IplImage ，
+
+来看一下都有哪些特征被计算：
+
+```c++
+//图像灰度概率
+//缺陷mul梯度图灰度概率
+//CalGLCM(src1, glcm);//共生矩阵，这是什么？
+```
+
+Haralick曾提出了14种基于灰度共生矩阵计算出来的统计量：即：能量、熵、对比度、均匀性、相关性、方差、和平均、和方差、和熵、差方差、差平均、差熵、相关信息测度以及最大相关系数。
+
+[图像纹理——灰度共生矩阵](https://blog.csdn.net/guanyuqiu/article/details/53117507)
+
+示例代码：
+
+```c++
+#define GLCM_CLASS 16 //计算灰度共生矩阵的图像灰度值等级化
+#define GLCM_DIS 3  //灰度共生矩阵的统计距离
+void C5CalFeature::CalGLCM(IplImage *src1, vector<double>& glcmNorm)
+{
+	int width, height;
+	int temp1 = GLCM_CLASS * GLCM_CLASS;
+	vector<int> glcm(temp1,0);
+	if (src1 != NULL)
+	{
+		width = src1->width;
+		height = src1->height;
+		vector<int> histImage(width*height,0);
+		uchar *data =(uchar*) src1->imageData;
+		for (int i = 0; i < src1->height; i++)
+		{
+			for (int j = 0; j < src1->width; j++)
+			{
+             //缩放到16个
+			histImage[i * width + j] = (int)(data[src1->widthStep * i + j] * GLCM_CLASS / 256);
+			}
+		}
+		//水平方向,步长为1
+		int k, l;
+		double factor = 2 * height * (width - GLCM_DIS); //2倍，因为左右重复扫描了。
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				l = histImage[i * width + j];
+				if (j + GLCM_DIS >= 0 && j + GLCM_DIS < width)  //右
+				{
+					k = histImage[i * width + j + GLCM_DIS];
+					glcm[l * GLCM_CLASS + k]++;
+				}
+				if (j - GLCM_DIS >= 0 && j - GLCM_DIS < width)  //左
+				{
+					k = histImage[i * width + j - GLCM_DIS];
+					glcm[l * GLCM_CLASS + k]++;
+				}
+			}
+		}
+		// 归一化
+		for (int i = 0; i < GLCM_CLASS; i++)
+		{
+			for (int j = 0; j < GLCM_CLASS; j++)
+			{
+				glcmNorm[i * GLCM_CLASS + j] = (double)glcm[i * GLCM_CLASS + j] / factor;
+			}
+		}
+		histImage.clear();
+		vector<int>().swap(histImage);
+	}
+	glcm.clear();
+	vector<int>().swap(glcm);
+}
+```
+
+具体使用哪些特征由`feature.names`文件决定，其他特征：
+
+```c++
+//Aren面积
+//AspectRatio宽高比
+//Length周长
+//Kurtosis峭度？
+//Entropy 熵 灰度概率的熵
+//GrayAmplitude 灰度幅值？最大灰度-最小灰度。。。
+//GrayMean 灰度均值
+//GrayVariance 灰度方差
+//Energy 灰度能量？？灰度概率的平方和？不是用共生矩阵算的？
+//Skewness 歪度？
+```
+
+歪度：
+
+![1540972176158](assets/1540972176158.png)
+
+```c++
+
+```
+
+熵：是图像包含信息量的随机性度量。当共生矩阵中所有值均相等或者像素值表现出最大的随机性时，熵最大；因此熵值表明了图像灰度分布的复杂程度，熵值越大，图像越复杂。 
+
+![img](assets/1360205863_1033.gif) 
+
+```c++
+//TextureContrast  fa
+```
+
+反差：又称为对比度，度量矩阵的值是如何分布和图像中局部变化的多少，反应了图像的清晰度和纹理的沟纹深浅。纹理的沟纹越深，反差越大，效果清晰；反之，对比值小，则沟纹浅，效果模糊。 
+
+![img](assets/1360205775_8290.gif) 
+
+```c++
+//CalTextureAver一致性 += 1.0 / (1 + (i - j) * (i - j)) * glcm[i * GLCM_CLASS + j];
+```
+
+相关度（inverse different moment）：度量空间灰度共生矩阵元素在行或列方向上的相似程度，因此，相关值大小反映了图像中局部灰度相关性。当矩阵元素值均匀相等时，相关值就大;相反，如果矩阵像元值相差很大则相关值小。 
+
+![img](assets/gif.gif) 
+
+去小点图的edgemask：怎么看代码都是算面积
+
+```c++
+//ObjPerimeter 目标周长 sum()
+//ObjPerimeterRatio 目标与ROI周长比？ rect/rect_big 
+
+double C5CalFeature::CalObjPerimeter(cv::Mat mask)//目标周长
+{
+	double perimter = sum(mask).val[0]/255;
+
+	return perimter;
+}
+double C5CalFeature::CalObjArea(cv::Mat mask)//目标面积
+{
+	double area = sum(mask).val[0]/255;
+
+	return area;
+}
+```
+
+
+
+areamask, 膨胀图的特征：
+
+```c++
+//ObjArea   面积 怎么跟求周长一样了
+//ObjAreaRatio   rect/rect_big 
+//ObjCenterDistance   二值图中心与重心的距离？
+//ObjCenterAngle      二值图中心与重心的角度？
+//EulerNum            欧拉数  返回5？
+//Eccentricity 离心率 大边/小边
+```
+
+
+
+```c++
+CalCompact(areamask,edgemask); //Compact 紧凑性，pow(perimeter,2)/(4*PI*area);
+CalRound(areamask,edgemask); //圆形性，pow(perimeter,2)/area;
+```
+
+
+
+原图的Hu不变矩，这里涉及到矩的概念，我在[opencvFun](./opencvFun.md)总结：
+
+```c++
+CvHuMoments humoment;
+humoment.hu1 = -1;
+```
+
+CvHuMoments 为结构体：
+
+```c++
+/* Hu invariants */
+typedef struct CvHuMoments
+{
+    double hu1, hu2, hu3, hu4, hu5, hu6, hu7; /* Hu invariants */
+}
+CvHuMoments;
+```
+
+代码：
+
+```c++
+CvHuMoments C5CalFeature::CalROIHu(/*CvSeq* seq*/IplImage *src,CvHuMoments &humoment)
+{
+	CvMoments moment;  
+	cvMoments(src, &moment, 2);   //第三个像素点非0，则所有的0像素点被当做0，非0像素点被当做1  
+	cvGetSpatialMoment(&moment, 0, 0); // 得到普通矩  
+	cvGetSpatialMoment(&moment, 1, 0);  
+	cvGetSpatialMoment(&moment, 0, 1);  
+
+	cvGetCentralMoment(&moment, 2, 0);  //得到中心矩  
+	cvGetHuMoments(&moment, &humoment);  
+
+	return humoment;  
+}
+```
+
+
+
+梯度特征（使用边缘图edgemask[0,255]和grad梯度图计算）：
+
+```c++
+//边缘梯度均值
+//边缘H方向与W方向梯度均值比
+//边缘梯度方差
+double C5CalFeature::CalEdgeGradStd(cv::Mat mask,cv::Mat grad)
+{
+	grad = grad.mul(mask);
+	cv::Mat gmean,gstd;
+	cv::meanStdDev(grad,gmean,gstd);
+	return gstd.at<double>(0,0);
+}
+```
+
+
+
+
+
+
+
+#### predict
 
 ```c++
 inline int DefectDetectionInstanceA::predict(list<double> featureList, int cols)
