@@ -270,7 +270,7 @@ def __init__(self,
 
 ###  get_variable函数
 
-创建或者获取变量
+创建或者获取变量，名字是必须填的参数。
 
 ```python
 def get_variable(name,       # 这不同于Variable类，是必须给出的哦
@@ -289,7 +289,7 @@ def get_variable(name,       # 这不同于Variable类，是必须给出的哦
                  constraint=None)
 ```
 
-对于tf.get_variable函数，变量名称是一个必填的参数。 tf.get_variable会根据这个名字去创建或者获取变量。 
+**对于tf.get_variable函数，变量名称是一个必填的参数。** tf.get_variable会根据这个名字去创建或者获取变量。 
 
 1. 变量共享机制
 
@@ -462,8 +462,8 @@ def conv2d(inputs,
            kernel_initializer=None,
            bias_initializer=init_ops.zeros_initializer(),
            
-           kernel_regularizer=None,
-           bias_regularizer=None,
+           kernel_regularizer=None, # 这几个正则怎么用不太清楚
+           bias_regularizer=None,   # 如何添加到损失中作为正则项呢？
            activity_regularizer=None, # Optional regularizer function for the output？
            
            kernel_constraint=None,
@@ -491,9 +491,258 @@ def conv2d(inputs,
 
 ## 损失函数
 
+### api
+
+```python
+tf.nn.softmax_cross_entropy_with_logits(labels=y_,logits=y)
+# 操作施加在未经过Softmax处理的logits上
+# logits与labels的shape和类型相同：比如[bantch_size,num_classes]
+```
+
+**注意！！！**这个函数的返回值并不是一个数，而是一个向量，如果要求交叉熵，我们要再做一步tf.reduce_sum操作,就是对向量里面所有元素求和，最后才得到交叉熵，如果求loss，则要做一步tf.reduce_mean操作，对向量求均值！ 
+
+```python
+tf.nn.sparse_softmax_cross_entropy_with_logits()
+# labels的形状要求是[batch_size]，即只有一个正确类别
+# 而值必须是从0开始编码的int32或int64，而且值范围是[0, num_class)
+```
+
+```python
+ tf.nn.sigmoid_cross_entropy_with_logits()
+ # 多目标分类，labels的shape和logits相同
+```
+
+```python
+tf.nn.weighted_cross_entropy_with_logits()
+# 是sigmoid_cross_entropy_with_logits的拓展版，多支持一个pos_weight参数，
+# 在传统基于sigmoid的交叉熵算法上，正样本算出的值乘以某个系数。
+```
+
+
+
+### 正则
+
+例子：
+
+```python
+cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=ys,
+                                                        logits=output)
+loss = tf.reduce_mean(cross_entropy, name='loss')
+l2 = tf.add_n([tf.nn.l2_loss(var) for var in tf.trainable_variables()])
+
+train_op = tf.train.MomentumOptimizer(
+    learning_rate=0.01,momentum=0.9,
+    use_nesterov=True).minimize(loss=loss + l2 * 1e-4)
+```
+
+
+
 ## 保存模型
 
++ 怎么用保存的模型 做预测呢，不用搭建网络了？
+
+  看import_meta_graph函数
+
++ 怎么restore一部分参数呢？
+
+  在初始化Saver类的时候指定参数列表
+
++ 怎么检查ckpt文件呢？一个函数
+
++ 怎么知道模型里存的变量的名字呢？不知道的话，不就不能指定参数列表了吗？？
+
+参数模型文件列表：
+
+![1542179920059](assets/1542179920059.png)
+
++ checkpoint：a protocol buffer
++ data-00000-of-00001：数据文件，保存的是网络的权值，偏置，操作等等。
++ index：是一个不可变得字符串表，每一个键都是张量的名称，它的值是一个序列化的BundleEntryProto。 每个BundleEntryProto描述张量的元数据：“数据”文件中的哪个文件包含张量的内容，该文件的偏移量，校验和，一些辅助数据等等。
++ meta：`MetaGraphDef` file，图结构。
+
+checkpoint的内容，可以看到最新的是20：
+
+```
+model_checkpoint_path: "resnet_neu_20"
+all_model_checkpoint_paths: "resnet_neu_18"
+all_model_checkpoint_paths: "resnet_neu_19"
+all_model_checkpoint_paths: "resnet_neu_20"
+```
+
+> savers keep a protocol buffer on disk with the list of recent checkpoints. This is used to manage numbered checkpoint files and by `latest_checkpoint()`, which makes it easy to discover the path
+> to the most recent checkpoint.
+
+### class Saver
+
+初始化`class Saver`，**The constructor adds ops to save and restore variables**
+
+```python
+saver = tf.train.Saver()
+```
+
+构造函数：
+
+```python
+def __init__(self,
+            var_list=None,
+            reshape=False,
+            sharded=False,
+            max_to_keep=5,                           # 保持几个
+            keep_checkpoint_every_n_hours=10000.0,   # 几小时
+            name=None,  # Optional name to use as a prefix when adding operations.
+            # ==========后面不知道都是什么鬼东西了==============
+            restore_sequentially=False,
+            saver_def=None,
+            builder=None,
+            defer_build=False,
+            allow_empty=False,
+            write_version=saver_pb2.SaverDef.V2,
+            pad_step_number=False,
+            save_relative_paths=False,
+            filename=None):
+```
+
+var_list：`var_list` specifies the variables that will be saved and restored. It canbe passed as a `dict` or a `list`。
+
+**注意！！！这里的功能包括保存和恢复，一旦初始化此类，就添加了save和restore的OP**。
+
+* A `dict` of names to variables: The keys are the names that will **be used to save or restore the variables in the checkpoint files.**
+* A list of variables: The variables will be keyed with their op name in the checkpoint files.
+
+dict中，key是op的name，应该是参数列表name属性的值吧。
+
+例如：
+
+```python
+v1 = tf.Variable(..., name='v1')
+v2 = tf.Variable(..., name='v2')
+
+# Pass the variables as a dict:
+saver = tf.train.Saver({'v1': v1, 'v2': v2})
+
+# Or pass them as a list.
+saver = tf.train.Saver([v1, v2])
+# Passing a list is equivalent to passing a dict with the variable op names
+# as keys:
+saver = tf.train.Saver({v.op.name: v for v in [v1, v2]})
+```
+
+### saver.save()
+
+> This method **runs the ops** added by the constructor for saving variables.
+> It requires a **session** in which the graph was launched.
+> The variables to save must also have been **initialized**.
+
+```python
+def save(self,
+         sess,
+         save_path,  #  Prefix of filenames,注意是前缀
+         global_step=None,  # 可以被append到save_path上作为前缀名
+         latest_filename=None, # Optional name for the protocol buffer file
+         meta_graph_suffix="meta", # Suffix for `MetaGraphDef` file
+         write_meta_graph=True,    # whether or not to write the meta graph file.
+         write_state=True, # whether or not to write the CheckpointStateProto.
+         strip_default_attrs=False)
+```
+
+### saver.restore()
+
+> This method runs the ops added by the constructor for restoring variables.
+>
+> The variables to restore do not have to have been initialized, as restoring is itself a way to initialize variables.
+
+```python
+def restore(self, sess, save_path)
+```
+
+没啥可说的啊。
+
+### train.import_meta_graph
+
+```python
+@tf_export("train.import_meta_graph")
+def import_meta_graph(meta_graph_or_file, clear_devices=False,
+                      import_scope=None, **kwargs):
+```
+
+meta_graph_or_file：`MetaGraphDef` protocol buffer **or** filename (including the path) containing a `MetaGraphDef`.
+
+结合 `export_meta_graph()`（在调用save()函数时，就会调用此函数，保存到文件），这个函数可以被用来：
+
+  * Serialize a graph along with other Python objects such as `QueueRunner`, `Variable` into a `MetaGraphDef`.
+
+  * Restart training from a saved graph and checkpoints.
+
+    ```Python
+    # Create a saver.
+    saver = tf.train.Saver(...variables...)
+    # Remember the training_op we want to run by adding it to a collection.
+    tf.add_to_collection('train_op', train_op)
+    sess = tf.Session()
+    for step in xrange(1000000):
+        sess.run(train_op)
+        if step % 1000 == 0:
+            # Saves checkpoint, which by default also exports a meta_graph
+            # named 'my-model-global_step.meta'.
+            saver.save(sess, 'my-model', global_step=step)
+    ```
+
+      Later we can continue training from this saved `meta_graph` without building
+      the model from scratch.
+
+      ```Python
+      with tf.Session() as sess:
+        new_saver = tf.train.import_meta_graph('my-save-dir/my-model-10000.meta')
+        new_saver.restore(sess, 'my-save-dir/my-model-10000')
+        # tf.get_collection() returns a list. In this example we only want the
+        # first one.
+        train_op = tf.get_collection('train_op')[0]
+        for step in xrange(1000000):
+          sess.run(train_op)
+      ```
+
+  * Run inference from a saved graph and checkpoints.
+
+### train.latest_checkpoint
+
+可以看到，还用到了`get_checkpoint_state`函数获取 ckpt 的 CheckpointState。
+
+**用这些函数，就可以指定文件夹来获得restore中的文件路径了，而不用每次都去修改模型路径了。嘿嘿**
+
+```python
+@tf_export("train.latest_checkpoint")
+def latest_checkpoint(checkpoint_dir, latest_filename=None):
+      # Pick the latest checkpoint based on checkpoint state.
+      ckpt = get_checkpoint_state(checkpoint_dir, latest_filename)
+      if ckpt and ckpt.model_checkpoint_path:
+            # Look for either a V2 path or a V1 path, with priority for V2.
+            v2_path = _prefix_to_checkpoint_path(ckpt.model_checkpoint_path,
+                                                 saver_pb2.SaverDef.V2)
+            v1_path = _prefix_to_checkpoint_path(ckpt.model_checkpoint_path,
+                                                 saver_pb2.SaverDef.V1)
+            if file_io.get_matching_files(v2_path) or file_io.get_matching_files(
+                v1_path):
+              return ckpt.model_checkpoint_path
+            else:
+              logging.error("Couldn't match files for checkpoint %s",
+                            ckpt.model_checkpoint_path)
+      return None
+```
+
+### train.checkpoint_exists
+
+```python
+@tf_export("train.checkpoint_exists")
+def checkpoint_exists(checkpoint_prefix)
+# checkpoint_prefix:
+# Typically the result of `Saver.save()` or that of `tf.train.latest_checkpoint()`,
+```
+
 ## 图形
+
+tensorboard的使用
+
+
 
 
 
