@@ -352,6 +352,30 @@ while i < len(filenames):
    ```python
    example = tf.train.Example(features)
    ```
+   print的效果：
+
+   ```
+   features {
+     feature {
+       key: "image/data"
+       value {
+         bytes_list {
+           value: "\224\224..."
+         }
+       }
+     }
+     feature {
+       key: "image/label"
+       value {
+         int64_list {
+           value: 0
+         }
+       }
+     }
+   }        
+   ```
+
+   
 
 4. 将example数据系列化为字符串
 

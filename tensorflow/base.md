@@ -21,12 +21,6 @@ Very common in TensorFlow program.
 
 ![1532006410140](assets/1532006410140.png)
 
-![1532006424558](assets/1532006424558.png)
-
-#### 检查checkpoint
-
-![1532006463863](assets/1532006463863.png)
-
 ### tf.summary
 
 #### 步骤
@@ -228,8 +222,8 @@ b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00O\x00\x00\x00\x17\x08\x06\x00\x
 >
 > 两个与变量有关的 graph collection：
 >
-> + GraphKeys.GLOBAL_VARIABLES：新变量默认添加到此集合，可通过`global_variables()` returns the contents of that collection.
-> +  GraphKeys.TRAINABLE_VARIABLES：可训练变量集合，用于区别**可训练的模型参数**和其他变量，例如我们常常用` global_step`记录 training steps，由参数 trainable 控制。可通过`trainable_variables() `返回内容，各种各样的`Optimizer` classes使用此集合作为默认变量list去优化
+> + **GraphKeys.GLOBAL_VARIABLES**：新变量默认添加到此集合，可通过`global_variables()` returns the contents of that collection.
+> +  **GraphKeys.TRAINABLE_VARIABLES**：可训练变量集合，用于区别**可训练的模型参数**和其他变量，例如我们常常用` global_step`记录 training steps，由参数 trainable 控制。可通过`trainable_variables() `返回内容，各种各样的`Optimizer` classes使用此集合作为默认变量list去优化
 
 You add a variable to the graph by constructing an instance of the `class Variable`：
 
@@ -528,6 +522,8 @@ tf.nn.weighted_cross_entropy_with_logits()
 cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=ys,
                                                         logits=output)
 loss = tf.reduce_mean(cross_entropy, name='loss')
+
+# 这样的话除了权重，也把偏置bias加进去了。
 l2 = tf.add_n([tf.nn.l2_loss(var) for var in tf.trainable_variables()])
 
 train_op = tf.train.MomentumOptimizer(
@@ -536,6 +532,34 @@ train_op = tf.train.MomentumOptimizer(
 ```
 
 
+
+```python
+ # 会自己添加到REGULARIZATION_LOSSES集合中
+ S = tf.get_variable(name='S',regularizer=tf.contrib.layers.l2_regularizer )
+ reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+ reg_constant = 0.01  # Choose an appropriate one.
+ loss = my_normal_loss + reg_constant * sum(reg_losses)
+
+```
+
+
+
+或者在定义变量的时候：
+
+```python
+def create_variable(name, shape, weight_decay=None, loss=tf.nn.l2_loss):
+    with tf.device("/cpu:0"):
+        var = tf.get_variable(name, dtype=tf.float32, shape=shape,
+                              initializer=tf.truncated_normal_initializer(stddev=0.05))
+ 
+    if weight_decay:
+        wd = loss(var) * weight_decay
+        tf.add_to_collection("weight_decay", wd)
+ 
+    return var
+```
+
+> “create_variable” has a weight_decay parameter that defines whether the variable should be affected by regularization or not. Why do we choose to avoid regularization on any variables? The function is used for weights and bias creation. Bias shouldn’t be influenced by regularization as reported in https://www.cs.toronto.edu/~hinton/absps/guideTR.pdf 
 
 ## 保存模型
 
@@ -547,11 +571,19 @@ train_op = tf.train.MomentumOptimizer(
 
   在初始化Saver类的时候指定参数列表
 
++ 怎么训练一部分参数
+
+  在优化器minimize()参数中指定var_list
+
 + 怎么检查ckpt文件呢？一个函数
 
 + 怎么知道模型里存的变量的名字呢？不知道的话，不就不能指定参数列表了吗？？
 
-参数模型文件列表：
+  所以你得知道。。
+
+
+
+**参数模型文件列表**：
 
 ![1542179920059](assets/1542179920059.png)
 
@@ -742,7 +774,262 @@ def checkpoint_exists(checkpoint_prefix)
 
 tensorboard的使用
 
+TensorFlow 包含可帮助您理解图中的代码的工具。**图可视化工具**是 TensorBoard 的一个组件，可在浏览器中可视化图的结构。要创建可视化图表，最简单的方法是传递 [`tf.Graph`](https://tensorflow.google.cn/api_docs/python/tf/Graph)（在创建 [`tf.summary.FileWriter`](https://tensorflow.google.cn/api_docs/python/tf/summary/FileWriter) 时） 
 
 
 
+## 数据输入相关
+
+### 常用方法
+
+参考：https://blog.csdn.net/zzk1995/article/details/54292859
+
+1. string_input_producer
+
+   ```python
+   @tf_export("train.string_input_producer")
+   def string_input_producer(string_tensor,  # 1-D ，就是sting list
+                             num_epochs=None,  # 不指定的话，可以无限循环生成string
+                             shuffle=True, 
+                             seed=None,
+                             capacity=32,
+                             shared_name=None,
+                             name=None,
+                             cancel_op=None)
+   '''
+   Returns:
+       A queue with the output strings.  
+       A `QueueRunner` for the Queue 
+       is added to the current `Graph`'s `QUEUE_RUNNER` collection.
+   '''
+   ```
+
+   这构造了一个默认容量为32的队列，同时将此队列的将QueueRunner加入集合，比如：
+
+   ```python
+   # xxx_list可以是图像路劲list，或tfrecord路径，或其他字符串list，看你怎么用
+   name_queue = tf.train.string_input_producer(xxx_list)
+   # 比如：
+   xxx_list = tf.constant(['auglib_test.tfrecord', 'auglib_test.tfrecord'],dtype = tf.string)
+   xxx_list = ['auglib_test.tfrecord', 'auglib_test.tfrecord']
+   ```
+
+   定义OP
+
+   ```
+   size = name_queue.size()
+   a = name_queue.dequeue()
+   ```
+
+   **必须要有 tf.train.start_queue_runners(sess=sess)，来初始化queue里边的内容，使其运作 起来**
+
+   ```python
+   with tf.Session() as sess:
+       tf.train.start_queue_runners(sess=sess)
+       print(sess.run(size))
+       print(sess.run(a))
+       print(sess.run(size))
+       print(sess.run(a))
+       print(sess.run(size))
+       print(sess.run(a))
+       print(sess.run(size))
+   ```
+
+   可以看到每run一次出列操作，就会取出一个值：
+
+   ```
+   >>>
+   11
+   b'F:\\data\\augLib\\train\\Mold'
+   32
+   b'F:\\data\\augLib\\train\\Hole'
+   32
+   b'F:\\data\\augLib\\train\\Flat flower'
+   32
+   ```
+
+   
+
+2. reader
+
+   在得到`name_queue`后，搞一个reader，不同reader对应不同的文件结构。
+
+   + 比如TFrecord文件
+
+     ```python
+     reader = tf.TFRecordReader()
+     _, serialized_example = reader.read(name_queue)  # 每次返回一个文件名和对应数据
+     '''
+     解析serialized_example操作，可得到img_tensor,label_tensor
+     '''
+     ```
+
+   + 或者dequeue()之后自己写读取图片的过程（ps：得用tf自带的函数，毕竟都是Tensor类型）
+
+3. tf.train.batch或者tf.train.shuffle_batch
+
+   第2步得到的使一个一个数据，但是训练网络每次要放入一批。
+
+   其内部原理似乎是创建了一个queue，然后不断调用你的单样本tensor获得样本，直到queue里边有足够的样本，然后一次返回一堆样本，组成样本batch 。
+
+   ```python
+   img_batch, label_batch = tf.train.shuffle_batch([img_tensor, label_tensor],
+                                                   batch_size=batch_size, 
+                                                   capacity=3000,
+                                                   min_after_dequeue=10)
+   ```
+
+   
+
+4. 事实上一直到上一步的image_batch和label_batch的tensor，都还没有真实的数据在里边，我们必须用Session run一下这个4D的tensor，才会真的有数据出来。这个原理就和我们定义好的神经网络run一下出结果一样，你一run这个4D tensor，他就会顺着自己的operator找自己依赖的其他tensor，一路最后找到最开始reader那里。
+
+   所以，image_batch和label_batch就是tensor了，不能喂到placeholder里了。
+
+### tf.data api
+
+???
+
+```python
+from tensorflow.python.data import Dataset  # 好像是基类
+from tensorflow.python.data import FixedLengthRecordDataset
+from tensorflow.python.data import Iterator
+from tensorflow.python.data import TFRecordDataset
+from tensorflow.python.data import TextLineDataset
+```
+
+参考：https://tensorflow.google.cn/guide/datasets
+
+两个抽象类：
+
++ [`tf.data.Dataset`](https://tensorflow.google.cn/api_docs/python/tf/data/Dataset)  
++ [`tf.data.Iterator`](https://tensorflow.google.cn/api_docs/python/tf/data/Iterator) 
+
+#### 数据集结构
+
+一个数据集包含多个元素，每个元素的结构都相同。一个元素包含一个或多个 [`tf.Tensor`](https://tensorflow.google.cn/api_docs/python/tf/Tensor) 对象，**这些对象称为组件**。 
+
+#### 创建迭代器
+
+**单次迭代器**
+
+```python
+iterator = dataset.make_one_shot_iterator()
+```
+
+**可初始化迭代器**需要先运行显式 `iterator.initializer` 操作。虽然有些不便，**但它允许您使用一个或多个`tf.placeholder()`张量（可在初始化迭代器时馈送）参数化数据集的定义**。 
+
+```python
+max_value = tf.placeholder(tf.int64, shape=[])
+dataset = tf.data.Dataset.range(max_value)
+iterator = dataset.make_initializable_iterator()
+
+# Initialize an iterator over a dataset with 10 elements.
+sess.run(iterator.initializer, feed_dict={max_value: 10})
+```
+
+**可重新初始化**迭代器可以通过多个不同的 `Dataset` 对象进行初始化。 
+
+```python
+iterator = tf.data.Iterator.from_structure(training_dataset.output_types,
+                                           training_dataset.output_shapes)
+                                           
+training_init_op = iterator.make_initializer(training_dataset)
+validation_init_op = iterator.make_initializer(validation_dataset)
+
+Initialize an iterator over 某一个 dataset.
+sess.run(training_init_op)
+sess.run(validation_init_op)
+```
+
+**可馈送**迭代器可以与 [`tf.placeholder`](https://tensorflow.google.cn/api_docs/python/tf/placeholder) 一起使用，以选择所使用的 `Iterator`（在每次调用 [`tf.Session.run`](https://tensorflow.google.cn/api_docs/python/tf/Session#run) 时）（通过熟悉的 `feed_dict` 机制）。 它提供的功能与可重新初始化迭代器的相同，但在迭代器之间切换时不需要从数据集的开头初始化迭代器。 
+
+```python
+handle = tf.placeholder(tf.string, shape=[])
+iterator = tf.data.Iterator.from_string_handle(
+    handle, training_dataset.output_types, training_dataset.output_shapes)
+next_element = iterator.get_next()
+
+# 可以定义不同的迭代器 
+training_iterator = training_dataset.make_one_shot_iterator()
+validation_iterator = validation_dataset.make_initializable_iterator()
+
+# The `Iterator.string_handle()` method returns a tensor that can be evaluated
+# and used to feed the `handle` placeholder.
+training_handle = sess.run(training_iterator.string_handle())
+validation_handle = sess.run(validation_iterator.string_handle())
+
+for _ in range(200):
+    # 根据handle的传入值，初始化迭代器
+    sess.run(next_element, feed_dict={handle: training_handle})
+    
+    sess.run(validation_iterator.initializer)
+    sess.run(next_element, feed_dict={handle: validation_handle})
+```
+
+
+
+#### 读取输入数据
+
+##### 消耗Numpy数组
+
+其实这种方法就与我们将numpy数据全部放入内存中一样，每次根据训练的step和batchsize去切片取出数据（只不过在`tf.data`这里可以用迭代器啦）。
+
+```python
+with np.load("/var/data/training_data.npy") as data:
+  features = data["features"]
+  labels = data["labels"]
+
+# Assume that each row of `features` corresponds to the same row as `labels`.
+assert features.shape[0] == labels.shape[0]
+
+dataset = tf.data.Dataset.from_tensor_slices((features, labels))
+```
+
+请注意，上面的代码段会将 `features` 和 `labels` 数组作为 `tf.constant()` 指令嵌入在 TensorFlow 图中。这样非常适合小型数据集，但会浪费内存，因为会多次复制数组的内容，并可能会达到 [`tf.GraphDef`](https://tensorflow.google.cn/api_docs/python/tf/GraphDef) 协议缓冲区的 2GB 上限 。可以用placeholder解决：
+
+```python
+features_placeholder = tf.placeholder(features.dtype, features.shape)
+labels_placeholder = tf.placeholder(labels.dtype, labels.shape)
+
+dataset = tf.data.Dataset.from_tensor_slices((features_placeholder, labels_placeholder))
+# [Other transformations on `dataset`...]
+dataset = ...
+iterator = dataset.make_initializable_iterator()
+
+sess.run(iterator.initializer, feed_dict={features_placeholder: features,
+                                          labels_placeholder: labels})
+```
+
+##### 消耗TFrecord数据
+
+TFRecord 文件格式是一种面向记录的简单二进制格式，很多 TensorFlow 应用采用此格式来训练数据。通过 [`tf.data.TFRecordDataset`](https://tensorflow.google.cn/api_docs/python/tf/data/TFRecordDataset) 类，您可以将一个或多个 TFRecord 文件的内容作为输入管道的一部分进行流式传输。 
+
+```python
+filenames = ["/var/data/file1.tfrecord", "/var/data/file2.tfrecord"]
+dataset = tf.data.TFRecordDataset(filenames)
+```
+
+`TFRecordDataset` 初始化程序的 `filenames` 参数可以是**字符串、字符串列表，也可以是字符串 [`tf.Tensor`](https://tensorflow.google.cn/api_docs/python/tf/Tensor)**。因此，如果您有两组分别用于训练和验证的文件，则可以使用 `tf.placeholder(tf.string)` 来表示文件名，并使用适当的文件名初始化迭代器： 
+
+```python
+filenames = tf.placeholder(tf.string, shape=[None])
+dataset = tf.data.TFRecordDataset(filenames)
+
+dataset = dataset.map(...)  # Parse the record into tensors.
+dataset = dataset.repeat()  # Repeat the input indefinitely.
+dataset = dataset.batch(32)
+iterator = dataset.make_initializable_iterator()
+
+# 根据实际情况，可以用训练集或验证集初始化迭代器
+training_filenames = ["/var/data/file1.tfrecord", "/var/data/file2.tfrecord"]
+sess.run(iterator.initializer, feed_dict={filenames: training_filenames})
+```
+
+
+
+消耗文本数据
+
+消耗CSV数据
+
+### 使用 `Dataset.map()` 预处理数据
 

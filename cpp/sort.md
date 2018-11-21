@@ -339,7 +339,7 @@ void heapAdjust(vector<int> &list, int parent, int len) {  //把第i个元素（
 
 vector<int> heapSort(vector<int> &list) {
 	int len = list.size();
-	for (int i = len / 2-1; i >= 0; i--) { //堆构造
+	for (int i = len / 2-1; i >= 0; i--) { //堆构造，只有len/2-1个不是叶子节点
 		cout << "下拉根结点：" << i<<endl;
 		heapAdjust(list, i, len);
 	}
