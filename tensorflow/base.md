@@ -1033,3 +1033,43 @@ sess.run(iterator.initializer, feed_dict={filenames: training_filenames})
 
 ### 使用 `Dataset.map()` 预处理数据
 
+`Dataset.map(f)` 转换通过将指定函数 `f` 应用于输入数据集的每个元素来生成新数据集。此转换基于 [`map()` 函数](https://en.wikipedia.org/wiki/Map_(higher-order_function))（通常应用于函数式编程语言中的列表和其他结构）。函数 `f` 会接受表示输入中单个元素的 [`tf.Tensor`](https://tensorflow.google.cn/api_docs/python/tf/Tensor) 对象，并返回表示新数据集中单个元素的 [`tf.Tensor`](https://tensorflow.google.cn/api_docs/python/tf/Tensor) 对象。此函数的实现使用标准的 TensorFlow 指令将一个元素转换为另一个元素。 
+
+#### 解析 `tf.Example` 协议缓冲区消息
+
+```python
+# Transforms a scalar string `example_proto` into a pair of a scalar string and
+# a scalar integer, representing an image and its label, respectively.
+def _parse_function(example_proto):
+  features = {"image": tf.FixedLenFeature((), tf.string, default_value=""),
+              "label": tf.FixedLenFeature((), tf.int64, default_value=0)}
+  parsed_features = tf.parse_single_example(example_proto, features)
+  return parsed_features["image"], parsed_features["label"]
+
+# Creates a dataset that reads all of the examples from two files, and extracts
+# the image and label features.
+filenames = ["/var/data/file1.tfrecord", "/var/data/file2.tfrecord"]
+dataset = tf.data.TFRecordDataset(filenames)
+dataset = dataset.map(_parse_function)
+```
+
+#### 解码图片数据
+
+```python
+# Reads an image from a file, decodes it into a dense tensor, and resizes it
+# to a fixed shape.
+def _parse_function(filename, label):
+  image_string = tf.read_file(filename)
+  image_decoded = tf.image.decode_jpeg(image_string)
+  image_resized = tf.image.resize_images(image_decoded, [28, 28])
+  return image_resized, label
+
+# A vector of filenames.
+filenames = tf.constant(["/var/data/image1.jpg", "/var/data/image2.jpg", ...])
+# `labels[i]` is the label for the image in `filenames[i].
+labels = tf.constant([0, 37, ...])
+
+dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
+dataset = dataset.map(_parse_function)
+```
+

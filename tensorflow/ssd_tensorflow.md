@@ -1114,7 +1114,7 @@ dataset.decoder
 
 ### 2.1Anchors的生成
 
-为所有特征图生成anchors：layers_anchors: [(y,x,h,w),(y,x,h,w),(y,x,h,w)……]。元素为tuple类型。
+为所有特征图生成anchors：layers_anchors: [(y,x,h,w),(y,x,h,w),(y,x,h,w),(y,x,h,w),(y,x,h,w),(y,x,h,w)]。元素为tuple类型。
 
 ```python
 def ssd_anchors_all_layers(img_shape,
@@ -1469,7 +1469,7 @@ def tf_ssd_bboxes_encode_layer(labels,
         jaccard = tf.div(inter_vol, union_vol)
         return jaccard
 
-    # 这个不是IoU，是Io anchors，这里没用
+    # 这个不是IoU(并集)，是Io anchors，这里没用
     def intersection_with_anchors(bbox):
         """Compute intersection between score a box and the anchors.
         """
@@ -1490,6 +1490,7 @@ def tf_ssd_bboxes_encode_layer(labels,
         # groundtruth labels
         # 遍历所有ground truth的框
         # 即i与labels的第一维对比（实际上labels就是1D Tesnor），即有几个框，遍历几个框
+        # if i < tf.shape(labels)[0]
         r = tf.less(i, tf.shape(labels))
         return r[0]
 
@@ -1507,9 +1508,12 @@ def tf_ssd_bboxes_encode_layer(labels,
         bbox = bboxes[i]
         # 返回的是交并比,算一层特征图上所有的框和图像中第个i个ground truth的交并比
         jaccard = jaccard_with_anchors(bbox)
-        # Mask: check threshold + scores + no annotations + num_classes.
+        # Mask: check threshold + scores + no annotations + num_classes. 布尔值
+        # 每次比较第i个ground truth与所有anchor的IoU与上次循环i-1 gt的feat_score
+        # 比上次大的置为 True，也就是说这个位置的anchor属于这次的ground truth，而不是上次的。
+        # 所以需要更新为 第i个ground truth的 label、scores和坐标
         # feat_scores初始值是就是0，所以这块已经把小于0的筛选掉，不可能有负分啊
-        mask = tf.greater(jaccard, feat_scores)  # 形状还是（38，38，4）
+        mask = tf.greater(jaccard, feat_scores)  # 形状还是（38，38，4），记住这是循环
         # mask = tf.logical_and(mask, tf.greater(jaccard, matching_threshold))
         mask = tf.logical_and(mask, feat_scores > -0.5)  
         # 这块咋不选大于0.5的???这特么的有问题啊，上上一句已经把小于0的排除了啊。
@@ -1550,7 +1554,7 @@ def tf_ssd_bboxes_encode_layer(labels,
     feat_cx = (feat_xmax + feat_xmin) / 2.
     feat_h = feat_ymax - feat_ymin
     feat_w = feat_xmax - feat_xmin
-    # Encode features.
+    # Encode features.这才是真正要回归的目标
     feat_cy = (feat_cy - yref) / href / prior_scaling[0]
     feat_cx = (feat_cx - xref) / wref / prior_scaling[1]
     feat_h = tf.log(feat_h / href) / prior_scaling[2]
@@ -1691,7 +1695,7 @@ def clone_fn(batch_queue):
 
 ### 3.2loss
 
-论文中是多任务损失，还需要将正负的比例控制在1：3，还提莫要对负样本按分数进行排序（这个分数好像就是按照IoU计算的，越小说明是背景的置信分数越高），越负越好。
+论文中是多任务损失，还需要将正负的比例控制在1：3，还要对负样本按分数进行排序（这个分数好像就是按照IoU计算的，越小说明是背景的置信分数越高），越负越好。
 
 ```python
 ssd_net.losses(logits, localisations,
@@ -1748,7 +1752,7 @@ def ssd_losses(logits, localisations,
             flocalisations.append(tf.reshape(localisations[i], [-1, 4])) #预测边框坐标
             fglocalisations.append(tf.reshape(glocalisations[i], [-1, 4])) #groundtruth真实坐标
         # And concat the crap!把所有特征图放一个list里！！
-        logits = tf.concat(flogits, axis=0)
+        logits = tf.concat(flogits, axis=0) # [1+2+3+4+5+6层,21]
         gclasses = tf.concat(fgclasses, axis=0)
         gscores = tf.concat(fgscores, axis=0)
         localisations = tf.concat(flocalisations, axis=0)
@@ -1775,7 +1779,9 @@ def ssd_losses(logits, localisations,
         nvalues = tf.where(nmask,
                            predictions[:, 0],# 是负样本，取出对应的预测置信分数
                            1. - fnmask)  # 不是负样本，1-0=1
-        # 在已知是负样本的情况下，预测的分数就代表了预测的有多准。
+        # 在打标签的时候并没有区分正负样本，也就是说除了那些没有匹配到的anchor，剩余的
+        # anchor都被打上类别标签，无论IoU是否大于0.5，置信分数仍然是IoU大小
+        # 所以，分数越大，那么与ground truth的重叠越多。就越hard
         nvalues_flat = tf.reshape(nvalues, [-1])
         # Number of negative entries to select.
         max_neg_entries = tf.cast(tf.reduce_sum(fnmask), tf.int32) # 负样本数量
@@ -1783,9 +1789,9 @@ def ssd_losses(logits, localisations,
         n_neg = tf.minimum(n_neg, max_neg_entries)  # 要用到的负样本数量
 
         val, idxes = tf.nn.top_k(-nvalues_flat, k=n_neg) # ====关键===为什么选置信度小的的？
-        max_hard_pred = -val[-1]  # 最大负样本置信度，如[-0.1,-0.2,-0.5]->0.5
+        max_hard_pred = -val[-1]  # 负样本中最大得分，如[-0.1,-0.2,-0.5]->0.5
         # Final negative mask.
-        nmask = tf.logical_and(nmask, nvalues < max_hard_pred)  # 置信度越小，表示误差越大，难道是选误差大的？？？选出最终的负样本
+        nmask = tf.logical_and(nmask, nvalues < max_hard_pred)  # 小于最hard的负样本的分数
         fnmask = tf.cast(nmask, dtype)
 
         # ========================损失函数==================================
@@ -1794,6 +1800,7 @@ def ssd_losses(logits, localisations,
         with tf.name_scope('cross_entropy_pos'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=gclasses)
+            # gclasses 21类求交叉熵，之后取fpmask掩码算正例的损失
             # 为什么是除以batch_size???
             loss = tf.div(tf.reduce_sum(loss * fpmask), batch_size, name='value')
             tf.losses.add_loss(loss)
@@ -1806,6 +1813,7 @@ def ssd_losses(logits, localisations,
         with tf.name_scope('cross_entropy_neg'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=no_classes)
+            # no_classes 0/1类别。算背景的损失
             loss = tf.div(tf.reduce_sum(loss * fnmask), batch_size, name='value')
             tf.losses.add_loss(loss)
 

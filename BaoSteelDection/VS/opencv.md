@@ -89,7 +89,7 @@
 
     问题就是如何能让可执行文件找到.dll文件。动态链接库的为目录：D:\Program Files\opencv\build\x86\vc10\bin，其中包含.dll文件。
 
-    + 配置环境变量PATH，增加其.dll目录：D:\Program Files\opencv\build\x86\vc10\bin。这样做是在调用“**32位的、由vc12编译器生成的、动态链接库形式的**OpenCV库”，。需要重启，否则依然找不到.dll文件。（一方法用了这个，项目复制到其他计算机要重新配置dll）
+    + 配置环境变量PATH，增加其.dll目录：D:\Program Files\opencv\build\x86\vc10\bin。这样做是在调用“**32位的、由vc10编译器生成的、动态链接库形式的**OpenCV库”，。需要重启，否则依然找不到.dll文件。（一方法用了这个，项目复制到其他计算机要重新配置dll）
     + 把相关的dll都拷贝到Windows操作系统的目录下 ：c:\Windows\System32 。PS:对于Windows 8，则要放在要在SysWOW64文件夹中。 （不推荐，想想也不清真）
     + 将bin下的.dll文件复制到本项目生成的exe文件所在目录中，如果没有Debug这个目录，那么先把项目生成/运行一遍就有了。 
 
