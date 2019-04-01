@@ -23,3 +23,5 @@ print(b) # [1,2,3]
 
 [Python：字符编码的前世今生](http://cuijiahua.com/blog/2018/07/trick-6.html)
 
+查看[encode](encode) 。
+
