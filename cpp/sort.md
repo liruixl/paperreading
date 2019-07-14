@@ -102,7 +102,7 @@ vector<int> selectSort(vector<int> list) {
 	for (int i = 1; i < list_size; i++) {
 		for (int j = i; j >0; j--) {
 			if (list[j - 1] > list[j]) {   //我这里又去挨个对比大小去了，没有把list[i]取出来
-				int temp = list[j];
+				int temp = list[j];		  //下次比较的就是list[i-1]了
 				list[j] = list[j-1];
 				list[j -1] = temp;
 			}

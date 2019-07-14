@@ -150,7 +150,7 @@ inline auto ThreadPoolManager::addTask(F && f, Args &&... args)
 
 例如代码中的：
 
-`Args &&... args`，省略号不是与后面的参数结合，而是扩展Args。编译器将模式`Args &&`应用到模板参数包`Args`中的每一个元素。
+`Args &&... args`，**省略号不是与后面的参数结合，而是扩展Args**。编译器将模式`Args &&`应用到模板参数包`Args`中的每一个元素。
 
 `rest...`，则是对函数参数包的扩展。
 

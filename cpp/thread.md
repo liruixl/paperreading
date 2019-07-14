@@ -514,30 +514,37 @@ int main()
 
 The execution of the current thread (which shall have locked lck's *mutex*) is blocked until *notified*. 
 
+当前线程（已经获得锁）会被阻塞，直到被notified。
+
 ```c++
 void wait (unique_lock<mutex>& lck);
 ```
 
-+ 在阻塞时，函数自动调用`lck.unlock()`，允许其他线程继续。
-+ 一旦*notified*，函数unblocks，并且调用`lck.lock()`，使`lck`处于函数被调用的状态。(notice that this last mutex locking may block again the thread before returning)
++ 在阻塞时，函数自动调用`lck.unlock()`，允许其他线程继续。注意此线程不会去竞争锁了。
++ 一旦*notified*，函数unblocks，并且调用`lck.lock()`，leaving `lck` in the same state as when the function was called. 然后函数返回 (注意：当调用`lck.lock()`，还可能在wait返回前再次阻塞，此时阻塞会在其他线程调用unlock后竞争锁）。
 
 ```c++
 template <class Predicate>
 void wait (unique_lock<mutex>& lck, Predicate pred);
 
-//lick
+//看起来像，条件不成立，则wait
 while (!pred()) wait(lck);
 ```
 
-pred返回false时，则阻塞本行，函数将自动解锁互斥量（lck.unlock()），允许其他被锁的线程继续。
-
-直到某个线程notified。仅仅当返回true时，函数才能解开阻塞，wait尝试再次获取锁（lck.lock()），1）没有获取到，则阻塞。2）如果获取到锁，继续判断pred。
++ pred返回false时，则阻塞本行，函数将自动解锁互斥量（lck.unlock()），允许其他被锁的线程继续。
++ notifications can only unblock the thread when it becomes true
+  + 如果被通知，wait函数被unblock，但没有成功获得锁，则阻塞在`lck.lock()`，等待其他线程unblock此锁🔒。
+  + 如果被通知，wait函数被unblock，成功拿到锁，则判断条件是否成立：
+    + 条件不成立，再次wait()阻塞线程。
+    + 成立，执行之后的代码。
 
 ~~???到底是阻塞，还是不断尝试获取锁。如果是不断尝试获取锁，那还用个屁的通知啊。。。~~
 
 ## notify_one()
 
 ...
+
+<https://stackoverflow.com/questions/37026/java-notify-vs-notifyall-all-over-again> ：314回答。
 
 # future
 
@@ -732,6 +739,8 @@ _cv.wait(mylock, [this]() {
 
 + 一次性创建好一定数量的线程。
 + 程序运行中，不会再创建销毁线程。
+
+# 对notify_one与notify_all的一点疑惑
 
 
 
