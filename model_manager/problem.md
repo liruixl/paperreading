@@ -729,3 +729,23 @@ IceUtil::HandleBase<Ice::Communicator> = {_ptr=0x000001989d1a1990 <无可用信�
 # 20190707
 
 添加Monitor类，用户订阅
+
+
+
+# 20190723
+
+## 中文乱码
+
+```c++
+QString str2qstr(const string str)  
+{  
+    return QString::fromLocal8Bit(str.data());  
+}  
+  
+string qstr2str(const QString qstr)  
+{  
+    QByteArray cdata = qstr.toLocal8Bit();  
+    return string(cdata);  
+}  
+```
+
