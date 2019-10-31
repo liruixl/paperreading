@@ -766,3 +766,20 @@ string qstr2str(const QString qstr)
 ## 变量怎么翻译用tr？
 
 不知道。直接在xml文件里面写。
+
+# 20191030
+
+## index函数
+
+创建当前模型的index，如果是无效的，则返回（-1，-1）
+
+我懵逼了，我以为是随便创建index，原来不是
+
+## datachanged信号
+
+信号的第三个参数是`QVector<int> roles ` 。
+
+由于是信号槽机制，要将`QVector<int> `类型注册到QT才能传递，如果没有注册那就相当于信号发出无效（好像是的）。
+
+
+
