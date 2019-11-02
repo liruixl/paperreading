@@ -92,7 +92,19 @@ int main()
 >+ Navigation and index creation: Hierarchical models need to provide functions that views can call to navigate the tree-like structures they expose, and obtain model indexes for items.
 >+ Drag and drop support and MIME type handling: Models inherit functions that control the way that internal and external drag and drop operations are performed. These functions allow items of data to be described in terms of MIME types that other components and applications can understand.
 
+
+
+## 钩子方法
+
+
+
+钩子方法可以作为条件控制，影响抽象类中的算法流程。基类中有默认的实现，子类也可以覆盖它。
+
+感觉Model/View中的`flags()`方法就是一个钩子方法，控制着一些开关。
+
 ## 其他的实际应用
+
+排序算法：你需要提供一个比较算法。
 
 
 
